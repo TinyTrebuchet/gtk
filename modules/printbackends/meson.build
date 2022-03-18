@@ -22,7 +22,10 @@ cups_dep = dependency('cups', version : '>=2.0', required: get_option('print-cup
 if cpdb_frontend_dep.found() and cpdb_common_dep.found()
   print_backends += 'cpdb'
   shared_module('printbackend-cpdb',
-    sources: 'gtkprintbackendcpdb.c',
+    sources: [
+      'gtkprintbackendcpdb.c',
+      'gtkprintercpdb.c',
+    ],
     c_args: printbackends_args,
     dependencies: [libgtk_dep, cpdb_frontend_dep, cpdb_common_dep],
     install_dir: printbackends_install_dir,

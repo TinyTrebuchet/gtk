@@ -1,19 +1,11 @@
-#include <gtk/gtk.h>
-#include "gtkprinterprivate.h"
 
 #include <config.h>
 #include <glib/gi18n-lib.h>
 
 #include "gtkprintbackendcpdb.h"
-#include <cpdb-libs-frontend.h>
 
 #include <cairo.h>
 #include <cairo-ps.h>
-
-
-#ifdef HAVE_COLORD
-#include <colord.h>
-#endif
 
 #define GTK_PRINT_BACKEND_CPDB_CLASS(klass)     (G_TYPE_CHECK_CLASS_CAST ((klass), GTK_TYPE_PRINT_BACKEND_CPDB, GtkPrintBackendCpdbClass))
 #define GTK_IS_PRINT_BACKEND_CPDB_CLASS(klass)  (G_TYPE_CHECK_CLASS_TYPE ((klass), GTK_TYPE_PRINT_BACKEND_CPDB))
@@ -49,6 +41,7 @@ typedef struct {
  * Declares the class initialization function, 
  * an instance intialization function, and
  * a static variable named gtk_print_backend_cpdb_parent_class pointing to the parent class
+ * Also does: typedef _GtkPrintBackendCpdb GtkPrintBackendCpdb
  */
 G_DEFINE_DYNAMIC_TYPE (GtkPrintBackendCpdb, gtk_print_backend_cpdb, GTK_TYPE_PRINT_BACKEND)
 
@@ -57,51 +50,6 @@ G_DEFINE_DYNAMIC_TYPE (GtkPrintBackendCpdb, gtk_print_backend_cpdb, GTK_TYPE_PRI
 static GtkPrintBackend *gtkPrintBackend;
 
 static GObjectClass *backend_parent_class;
-
-static void cpdb_request_printer_list (GtkPrintBackend *backend);
-static void cpdb_add_gtk_printer (PrinterObj *p);
-
-static void cpdb_printer_request_details (GtkPrinter *printer);
-
-static GtkPrinterOptionSet *cpdb_printer_get_options   (GtkPrinter *printer, 
-														GtkPrintSettings *settings, 
-														GtkPageSetup *page_setup, 
-														GtkPrintCapabilities capabilities);
-
-static void cpdb_printer_get_settings_from_options     (GtkPrinter *printer,
-														GtkPrinterOptionSet *options,
-														GtkPrintSettings *settings);
-                            
-static void cpdb_printer_prepare_for_print  (GtkPrinter *printer,
-                            GtkPrintJob *print_job,
-                            GtkPrintSettings *settings,
-                            GtkPageSetup *page_setup);
-                      
-static void cpdb_print_cb  (GtkPrintBackendCpdb *cpdb_backend, 
-                            GError *error, 
-                            gpointer user_data);
-
-static gboolean cpdb_write (GIOChannel *source,
-                        GIOCondition con,
-                        gpointer user_data);
-
-static void cpdb_print_stream  (GtkPrintBackend *backend,
-                                GtkPrintJob *job,
-                                GIOChannel *data_io,
-                                GtkPrintJobCompleteFunc callback,
-                                gpointer user_data,
-                                GDestroyNotify dnotify);
-
-void func (GtkPrinterOption *option, gpointer user_data);
-
-static cairo_surface_t *cpdb_printer_create_cairo_surface  (GtkPrinter *printer,
-                                                            GtkPrintSettings *settings,
-                                                            double width,
-                                                            double height,
-                                                            GIOChannel *cache_io);
-
-static void add_printer_callback(PrinterObj *p);
-static void remove_printer_callback(PrinterObj *p);
 
 
 void
@@ -126,7 +74,7 @@ char **
 g_io_module_query (void)
 {
   char *eps[] = {
-    GTK_PRINT_BACKEND_EXTENSION_POINT_NAME,
+    (char *)GTK_PRINT_BACKEND_EXTENSION_POINT_NAME,
     NULL
   };
 
@@ -159,13 +107,15 @@ gtk_print_backend_cpdb_new (void)
  * Initialize CPDB PrintBackend class
  */
 static void
-gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *class)
+gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *klass)
 {
-  GtkPrintBackendClass *backend_class = GTK_PRINT_BACKEND_CLASS (class);
+  GtkPrintBackendClass *backend_class = GTK_PRINT_BACKEND_CLASS (klass);
 
-  backend_parent_class = g_type_class_peek_parent (class);
+  // For calling parent's dispose, finalize methods (to be implemented later)
+  backend_parent_class = g_type_class_peek_parent (klass);
 
   backend_class->request_printer_list = cpdb_request_printer_list;
+  backend_class->printer_get_capabilities = cpdb_printer_get_capabilities;
   backend_class->printer_get_options = cpdb_printer_get_options;
   backend_class->printer_get_settings_from_options = cpdb_printer_get_settings_from_options;
   backend_class->printer_prepare_for_print = cpdb_printer_prepare_for_print;
@@ -190,21 +140,28 @@ gtk_print_backend_cpdb_class_finalize (GtkPrintBackendCpdbClass *class)
 static void
 gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
 {
+  g_print ("Initialzing CPDB backend object\n");
+
+  g_print ("Creating frontendObj for CPDB backend\n");
   cpdb_backend->f = get_new_FrontendObj  (NULL,
                                          (event_callback) add_printer_callback,
                                          (event_callback) remove_printer_callback);
 
   gtkPrintBackend = GTK_PRINT_BACKEND (cpdb_backend);
 
-  connect_to_dbus (cpdb_backend->f); // todo: add disconnect_from_dbus?
+  g_print ("Connecting to DBUS\n");
+  connect_to_dbus (cpdb_backend->f); // TODO: add disconnect_from_dbus?
   
-  g_print ("Connected to DBUS\n");
-  //todo: fix bug, cancelling print dialog and reopening doesn't get printers
+  //TODO: fix bug, cancelling print dialog and reopening doesn't get printers
 }
 
 /*
- * Displays printer list obtained from CPDB backend on the print dialog.
- * Used along with add_printer
+ * This function is responsible for displaying the printer list obtained from CPDB backend on the print dialog.
+ * Currently, this is implemented through refresh_printer_list,
+ * which gets a new printer list from backend,
+ * and calls add_printer_callback and remove_printer_callback
+ * for each printer added or removed in the newly obtained printer list.
+ * refresh_printer_list is internally implemented as an async function.
  */
 static void
 cpdb_request_printer_list (GtkPrintBackend *backend)
@@ -212,54 +169,76 @@ cpdb_request_printer_list (GtkPrintBackend *backend)
   g_print ("Reguesting printer list\n");
   GtkPrintBackendCpdb *cpdb_backend = GTK_PRINT_BACKEND_CPDB (backend);
   
+  g_print ("Refreshing printer list\n");
   refresh_printer_list (cpdb_backend->f);
+
+  gtk_print_backend_set_list_done (backend);
 }
+
 
 /*
-static gboolean
-cpdb_get_printers (void)
+ * This function is responsible for specifying which features the print dialog should offer.
+ */
+static GtkPrintCapabilities
+cpdb_printer_get_capabilities (GtkPrinter *printer)
 {
-  GList *l;
+  GtkPrintCapabilities capabilities = 0;
+  Option *cpdb_option;
+  GtkPrinterCpdb *cpdb_printer = GTK_PRINTER_CPDB (printer);
 
-  l = g_hash_table_get_values (cpdb_backend->f->printer);
-  printf("Number: %d %d\n", cpdb_backend->f->num_printers, g_list_length(l));
-  for (; l != NULL; l = l->next)
-    cpdb_add_gtk_printer (l->data);
 
-  gtk_print_backend_set_list_done (gtkPrintBackend);
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "page-set");
+  if (cpdb_option != NULL && cpdb_option->num_supported > 1)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_PAGE_SET;
+  }
 
-  return FALSE;
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "copies");
+  if (cpdb_option != NULL && g_strcmp0 (cpdb_option->supported_values, "1-1") != 0)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_COPIES;
+  }
+
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "multiple-document-handling");
+  if (cpdb_option != NULL && cpdb_option->num_supported > 1)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_COLLATE;
+  }
+
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "page-delivery");
+  if (cpdb_option != NULL && cpdb_option->num_supported > 1)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_REVERSE;
+  }
+
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "print-scaling");
+  if (cpdb_option != NULL && cpdb_option->num_supported > 0)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_SCALE;
+  }
+
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "number-up");
+  if (cpdb_option != NULL && cpdb_option->num_supported > 0)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_NUMBER_UP;
+  }
+
+  cpdb_option = get_Option (cpdb_printer, (gchar *) "number-up-layout");
+  if (cpdb_option != NULL && cpdb_option->num_supported > 0)
+  {
+    capabilities |= GTK_PRINT_CAPABILITY_NUMBER_UP_LAYOUT;
+  }
+
+  return capabilities;
 }
-*/
 
-static void
-cpdb_add_gtk_printer (PrinterObj *p)
-{
-  GtkPrinter *printer;
-
-  printf("Adding GtkPrinter\n");
-
-  printer = g_object_new (GTK_TYPE_PRINTER,
-                          "name", p->name,
-                          "backend", GTK_PRINT_BACKEND_CPDB (gtkPrintBackend),
-                          NULL);
-
-  gtk_printer_set_icon_name (printer, "printer");
-  gtk_printer_set_state_message (printer, p->state);
-  gtk_printer_set_location (printer, p->location);
-  gtk_printer_set_description (printer, p->info);
-  gtk_printer_set_is_accepting_jobs (printer, p->is_accepting_jobs);
-  gtk_printer_set_job_count (printer, get_active_jobs_count(p));
-  gtk_printer_set_has_details (printer, TRUE);
-  gtk_printer_set_is_active (printer, TRUE);
-
-  gtk_print_backend_add_printer (gtkPrintBackend, printer);
-  g_object_unref (printer);
-}
 
 /*
- * gtkprinteroptionset.h
- * gtkprinteroption.h
+ * This function is responsible for getting all the options
+ * that the printer supports and display them into the 
+ * GUI template of GTK+ print dialog box.
+ * The backend should obtain whatever options it supports,
+ * from either its print server or PPDs.
  */
 static GtkPrinterOptionSet *
 cpdb_printer_get_options (GtkPrinter *printer,
@@ -268,67 +247,99 @@ cpdb_printer_get_options (GtkPrinter *printer,
                           GtkPrintCapabilities capabilities)
 {
 
-  printf("Requesting printer options\n");
+  g_print ("Requesting printer options\n");
 
-  //todo: retrieve options from printer instead of hardcode
-  
-  GtkPrinterOption *option;
-  GtkPrinterOptionSet *set = gtk_printer_option_set_new();
+  //TODO: retrieve options from printer instead of hardcode
 
-  // CPDB Option CPD_OPTION_NUMBER_UP
-  const char *n_up[] = {"1", "2", "4", "6", "9", "16" };
-  option = gtk_printer_option_new ("gtk-n-up", C_("printer option", "Pages per Sheet"), GTK_PRINTER_OPTION_TYPE_PICKONE);
-  gtk_printer_option_choices_from_array (option, G_N_ELEMENTS (n_up), n_up, n_up);
-  gtk_printer_option_set (option, "1");
-  gtk_printer_option_set_add (set, option);
+  GtkPrinterCpdb *cpdb_printer;
+  PrinterObj *p;
+  Option *cpdb_option;
+  GtkPrinterOption *gtk_option;
+  GtkPrinterOptionSet *gtk_option_set = gtk_printer_option_set_new();
 
-  // CPDB Option CPD_OPTION_JOB_PRIORITY
-  const char *priority[] = {"100", "80", "50", "30" };
-  const char *priority_display[] = {N_("Urgent"), N_("High"), N_("Medium"), N_("Low") };
-  option = gtk_printer_option_new ("gtk-job-prio", _("Job Priority"), GTK_PRINTER_OPTION_TYPE_PICKONE);
-  gtk_printer_option_choices_from_array (option, G_N_ELEMENTS (priority), priority, priority_display);
-  gtk_printer_option_set (option, "50");
-  gtk_printer_option_set_add (set, option);
-  g_object_unref (option);
+  cpdb_printer = GTK_PRINTER_CPDB (printer);
+  g_print ("Requesting printer object to retrieve options\n");
+  p = gtk_printer_cpdb_get_pObj (cpdb_printer);
+  if (p == NULL)
+  {
+    g_print ("Error: PrintObj not found!\n");
+    //TODO: implement it properly
+  }
 
-  // CPDB Option CPD_OPTION_SIDES
-  const char *sides[] = {"one-sided", "two-sided-short", "two-sided-long"};
-  const char *sides_display[] = {N_("One Sided"), N_("Long Edged (Standard)"), N_("Short Edged (Flip)")};
-  option = gtk_printer_option_new ("gtk-duplex", _("Duplex Printing"), GTK_PRINTER_OPTION_TYPE_PICKONE);
-  gtk_printer_option_choices_from_array (option, G_N_ELEMENTS (sides), sides, sides_display);
-  gtk_printer_option_set (option, "one-sided");
-  gtk_printer_option_set_add (set, option);
-  g_object_unref (option);
+  //TODO: default_value may not be in supported_values, handle that
 
-  return set;
+
+
+  if (capabilities & GTK_PRINT_CAPABILITY_NUMBER_UP) 
+  {
+    g_print ("Retrieving number-up option\n");
+    cpdb_option = get_Option (p, (gchar *) "number-up");
+    gtk_option = gtk_printer_option_new ("gtk-n-up", C_("printer option", "Pages per Sheet"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
+
+  if (capabilities & GTK_PRINT_CAPABILITY_NUMBER_UP_LAYOUT)
+  {
+    g_print ("Retrieving number-up-layout option\n");
+    cpdb_option = get_Option (p, (gchar *) "number-up-layout");
+    gtk_option = gtk_printer_option_new ("gtk-n-up-layout", C_("printer option", "Page Ordering"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
+
+  g_print ("Retrieving sides option\n");
+  cpdb_option = get_Option (p, (gchar *) "sides");
+  if (cpdb_option != NULL)
+  {
+    gtk_option = gtk_printer_option_new ("gtk-duplex", _("Duplex Printing"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
+
+  g_print ("Retrieving job-priority option\n");
+  cpdb_option = get_Option (p, (gchar *) "job-priority");
+  if (cpdb_option != NULL)
+  {
+    gtk_option = gtk_printer_option_new ("gtk-job-prio", _("Job Priority"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
+
+  g_print ("Retrieving job-sheets option\n");
+  cpdb_option = get_Option (p, (gchar *) "job-sheets");
+  if (cpdb_option != NULL)
+  {
+    gtk_option = gtk_printer_option_new ("gtk-cover-before", C_("printer option", "Before"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+    gtk_option = gtk_printer_option_new ("gtk-cover-before", C_("printer option", "After"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
+
+  g_print ("Retrieving printer-resolution option\n");
+  cpdb_option = get_Option (p, (gchar *) "printer-resolution");
+  if (cpdb_option != NULL)
+  {
+    gtk_option = gtk_printer_option_new ("gtk-resolution", _("Resolution"), GTK_PRINTER_OPTION_TYPE_PICKONE);
+    cpdb_fill_gtk_option (gtk_option, cpdb_option);
+    cpdb_option->group = g_strdup ("ImageQualityPage");
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
+
+  //TODO: Implement rest of functions.
+
+
+  return gtk_option_set;
 }
-
-/*
-static GtkPrintCapabilities
-cpdb_printer_get_capabilities (GtkPrinter *printer)
-{
-	GtkPrintCapabilities capabilities = 0;
-	PrinterObj *p;
-	Option* option;
-	
-	p = find_PrinterObj(cpdb_backend->f, (gchar *)"PDF", (gchar *)"CUPS"); // todo: change hardcoded
-	if (p == NULL)
-		return capabilities;
-	
-	printf("Hereee!\n");
-	
-	option = get_Option(p, (gchar *)CPD_OPTION_COPIES);
-	if (option != NULL) {
-		if (g_strcmp0 (option->supported_values[0], "1-1") > 0) {
-			capabilities = GTK_PRINT_CAPABILITY_COPIES;
-			printf("Yeeep\n");
-		}
-	}
-	g_object_unref (option);
-	
-	return capabilities;
-}
-*/
 
 
 void func (GtkPrinterOption *option, gpointer user_data)
@@ -558,7 +569,7 @@ cpdb_print_stream  (GtkPrintBackend *backend,
 {
   GError *print_error = NULL;
   _PrintStreamData *ps;
-  GtkPrintSettings *settings;
+  //GtkPrintSettings *settings;
   int argc;
   int in_fd;
   char **argv = NULL;
@@ -568,7 +579,7 @@ cpdb_print_stream  (GtkPrintBackend *backend,
   
   cmd_line = "dd of=/tmp/test";
   
-  settings = gtk_print_job_get_settings (job);
+  //settings = gtk_print_job_get_settings (job);
   
   ps = g_new0 (_PrintStreamData, 1);
   ps->callback = callback;
@@ -625,40 +636,59 @@ cpdb_print_stream  (GtkPrintBackend *backend,
 }
 
 
-
 static void
 add_printer_callback (PrinterObj *p)
 {
-  g_message("Added Printer %s : %s!\n", p->name, p->backend_name);
-  
-  cpdb_add_gtk_printer (p);
-  gtk_print_backend_set_list_done(gtkPrintBackend);
+  g_message("Found Printer %s : %s!\n", p->name, p->backend_name);
 
-  // todo: check if adding new printers in realtime updates gtk_printers?
+  cpdb_add_gtk_printer (p, gtkPrintBackend);
 }
 
 static void
 remove_printer_callback (PrinterObj *p)
 {
-  g_message("Removed Printer %s : %s!\n", p->name, p->backend_name);
+  g_message("Lost Printer %s : %s!\n", p->name, p->backend_name);
+
+  // TODO: free PrinterObj since cpdb-libs doesn't do it
+  // TODO: implement cpdb_remove_gtk_printer
 }
 
-/*
-static PrinterObj *
-cpdb_get_PrinterObj (GtkPrinter *printer)
+static void
+cpdb_add_gtk_printer (PrinterObj *p, GtkPrintBackend *backend)
 {
-	// todo: any better way to implement it? Where to store p->id, p->backend_name in GtkPrinter struct
-	GList *l;
-	PrinterObj *p = NULL;
-	
-	l = g_hash_table_get_values (cpdb_backend->f->printer);
-	for (; l != NULL; l = l->next) {
-		if (g_strcmp0(((PrinterObj *)l->data)->name, gtk_printer_get_name(printer)) == 0) {
-			p = l->data;
-		}
-	}
+  GtkPrinterCpdb *cpdb_printer;
+  GtkPrinter *printer;
 
-	return p;
+  printf("Adding GtkPrinter\n");
+
+  cpdb_printer = g_object_new (GTK_TYPE_PRINTER_CPDB,
+                               "name", p->name,
+                               "backend", GTK_PRINT_BACKEND_CPDB (gtkPrintBackend),
+                               NULL);
+  gtk_printer_cpdb_set_pObj (cpdb_printer, p);
+
+  printer = GTK_PRINTER (cpdb_printer);
+
+  gtk_printer_set_icon_name (printer, "printer");
+  gtk_printer_set_state_message (printer, p->state);
+  gtk_printer_set_location (printer, p->location);
+  gtk_printer_set_description (printer, p->info);
+  gtk_printer_set_is_accepting_jobs (printer, p->is_accepting_jobs);
+  gtk_printer_set_job_count (printer, get_active_jobs_count(p));
+  gtk_printer_set_has_details (printer, TRUE);
+  gtk_printer_set_is_active (printer, TRUE);
+
+  gtk_print_backend_add_printer (backend, printer);
+  g_object_unref (printer);
 }
-*/
-			
+
+static void
+cpdb_fill_gtk_option (GtkPrinterOption *gtk_option,
+                     Option *cpdb_option)
+{
+  gtk_printer_option_choices_from_array (gtk_option, cpdb_option->num_supported, (const gchar **)cpdb_option->supported_values, (const gchar **)cpdb_option->supported_values);
+  if (g_strcmp0 (cpdb_option->default_value, "NA") != 0)
+  {
+    gtk_printer_option_set (gtk_option, cpdb_option->default_value);
+  }    
+}

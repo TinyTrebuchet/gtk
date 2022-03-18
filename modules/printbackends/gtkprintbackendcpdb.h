@@ -2,7 +2,10 @@
 #define __GTK_PRINT_BACKEND_CPDB_H__
 
 #include <glib-object.h>
+#include <gtk/gtk.h>
 #include "gtkprintbackendprivate.h"
+#include <cpdb-libs-frontend.h>
+#include <gtkprintercpdb.h>
 
 G_BEGIN_DECLS
 
@@ -15,6 +18,55 @@ typedef struct _GtkPrintBackendCpdb      GtkPrintBackendCpdb;
 
 GtkPrintBackend *gtk_print_backend_cpdb_new      (void);
 GType          gtk_print_backend_cpdb_get_type (void) G_GNUC_CONST;
+
+
+static void cpdb_request_printer_list                         (GtkPrintBackend *backend);
+static void cpdb_add_gtk_printer                              (PrinterObj *p, 
+                                                               GtkPrintBackend *backend);
+
+static GtkPrinterOptionSet *cpdb_printer_get_options          (GtkPrinter *printer, 
+                                                               GtkPrintSettings *settings, 
+                                                               GtkPageSetup *page_setup, 
+                                                               GtkPrintCapabilities capabilities);
+
+static void cpdb_fill_gtk_option                              (GtkPrinterOption *gtk_option,
+                                                               Option *cpdb_option)
+
+static void cpdb_printer_get_settings_from_options            (GtkPrinter *printer,
+                                                               GtkPrinterOptionSet *options,
+                                                               GtkPrintSettings *settings);
+                            
+static void cpdb_printer_prepare_for_print                    (GtkPrinter *printer,
+                                                               GtkPrintJob *print_job,
+                                                               GtkPrintSettings *settings,
+                                                               GtkPageSetup *page_setup);
+                      
+static void cpdb_print_cb                                     (GtkPrintBackendCpdb *cpdb_backend, 
+                                                               GError *error, 
+                                                               gpointer user_data);
+
+static gboolean cpdb_write                                    (GIOChannel *source,
+                                                               GIOCondition con,
+                                                               gpointer user_data);
+
+static void cpdb_print_stream                                 (GtkPrintBackend *backend,
+                                                               GtkPrintJob *job,
+                                                               GIOChannel *data_io,
+                                                               GtkPrintJobCompleteFunc callback,
+                                                               gpointer user_data,
+                                                               GDestroyNotify dnotify);
+
+void func                                                     (GtkPrinterOption *option, gpointer user_data);
+
+static cairo_surface_t *cpdb_printer_create_cairo_surface     (GtkPrinter *printer,
+                                                               GtkPrintSettings *settings,
+                                                               double width,
+                                                               double height,
+                                                               GIOChannel *cache_io);
+
+static void add_printer_callback                              (PrinterObj *p);
+static void remove_printer_callback                           (PrinterObj *p);
+
 
 G_END_DECLS
 
