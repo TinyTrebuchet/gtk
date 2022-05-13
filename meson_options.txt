@@ -87,12 +87,17 @@ option('f16c',
 
 option('gtk_doc',
        type: 'boolean',
-       value: 'false',
+       value: false,
        description : 'Build API reference and tools documentation')
+
+option('update_screenshots',
+       type: 'boolean',
+       value: false,
+       description : 'Regenerate screenshots for the documentation')
 
 option('man-pages',
        type: 'boolean',
-       value: 'false',
+       value: false,
        description : 'Build man pages for installed tools')
 
 option('introspection',
@@ -105,7 +110,7 @@ option('introspection',
 
 option('demos',
        type: 'boolean',
-       value: 'true',
+       value: true,
        description : 'Build demo programs')
 
 option('profile',
@@ -116,15 +121,15 @@ option('profile',
 
 option('build-examples',
        type: 'boolean',
-       value: 'true',
+       value: true,
        description : 'Build examples')
 
 option('build-tests',
        type: 'boolean',
-       value: 'true',
+       value: true,
        description : 'Build tests')
 
 option('install-tests',
        type: 'boolean',
-       value: 'false',
+       value: false,
        description : 'Install tests')

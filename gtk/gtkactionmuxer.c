@@ -991,13 +991,15 @@ gtk_action_muxer_unregister_observer (GtkActionObservable *observable,
                                       GtkActionObserver   *observer)
 {
   GtkActionMuxer *muxer = GTK_ACTION_MUXER (observable);
-  Action *action;
+  Action *action = find_observers (muxer, name);
 
-  action = find_observers (muxer, name);
   if (action)
     {
-      g_object_weak_unref (G_OBJECT (observer), gtk_action_muxer_weak_notify, action);
-      gtk_action_muxer_unregister_internal (action, observer);
+      if (g_slist_find (action->watchers, observer) != NULL)
+        {
+          g_object_weak_unref (G_OBJECT (observer), gtk_action_muxer_weak_notify, action);
+          gtk_action_muxer_unregister_internal (action, observer);
+        }
     }
 }
 
@@ -1218,14 +1220,12 @@ gtk_action_muxer_class_init (GObjectClass *class)
   class->finalize = gtk_action_muxer_finalize;
   class->dispose = gtk_action_muxer_dispose;
 
-  properties[PROP_PARENT] = g_param_spec_object ("parent", "Parent",
-                                                 "The parent muxer",
+  properties[PROP_PARENT] = g_param_spec_object ("parent", NULL, NULL,
                                                  GTK_TYPE_ACTION_MUXER,
                                                  G_PARAM_READWRITE |
                                                  G_PARAM_STATIC_STRINGS);
 
-  properties[PROP_WIDGET] = g_param_spec_object ("widget", "Widget",
-                                                 "The widget that owns the muxer",
+  properties[PROP_WIDGET] = g_param_spec_object ("widget", NULL, NULL,
                                                  GTK_TYPE_WIDGET,
                                                  G_PARAM_READWRITE |
                                                  G_PARAM_CONSTRUCT_ONLY |
@@ -1269,7 +1269,7 @@ gtk_action_muxer_insert (GtkActionMuxer *muxer,
   if (!muxer->groups)
     muxer->groups = g_hash_table_new_full (g_str_hash, g_str_equal, NULL, gtk_action_muxer_free_group);
 
-  group = g_slice_new (Group);
+  group = g_slice_new0 (Group);
   group->muxer = muxer;
   group->group = g_object_ref (action_group);
   group->prefix = g_strdup (prefix);

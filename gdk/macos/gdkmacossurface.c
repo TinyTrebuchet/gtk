@@ -219,10 +219,17 @@ gdk_macos_surface_hide (GdkSurface *surface)
 
   if (was_key)
     {
+      GdkSurface *parent;
+
+      if (GDK_IS_TOPLEVEL (surface))
+        parent = surface->transient_for;
+      else
+        parent = surface->parent;
+
       /* Return key input to the parent window if necessary */
-      if (surface->parent != NULL && GDK_SURFACE_IS_MAPPED (surface->parent))
+      if (parent != NULL && GDK_SURFACE_IS_MAPPED (parent))
         {
-          GdkMacosWindow *parentWindow = GDK_MACOS_SURFACE (surface->parent)->window;
+          GdkMacosWindow *parentWindow = GDK_MACOS_SURFACE (parent)->window;
 
           [parentWindow showAndMakeKey:YES];
         }
@@ -595,9 +602,7 @@ gdk_macos_surface_class_init (GdkMacosSurfaceClass *klass)
    * The "native" property contains the underlying NSWindow.
    */
   properties [PROP_NATIVE] =
-    g_param_spec_pointer ("native",
-                          "Native",
-                          "The native NSWindow",
+    g_param_spec_pointer ("native", NULL, NULL,
                           G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, LAST_PROP, properties);

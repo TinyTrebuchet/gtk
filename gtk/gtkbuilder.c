@@ -305,9 +305,7 @@ gtk_builder_class_init (GtkBuilderClass *klass)
   * otherwise g_dgettext().
   */
   builder_props[PROP_TRANSLATION_DOMAIN] =
-      g_param_spec_string ("translation-domain",
-                           P_("Translation Domain"),
-                           P_("The translation domain used by gettext"),
+      g_param_spec_string ("translation-domain", NULL, NULL,
                            NULL,
                            GTK_PARAM_READWRITE);
 
@@ -317,9 +315,7 @@ gtk_builder_class_init (GtkBuilderClass *klass)
   * The object the builder is evaluating for.
   */
   builder_props[PROP_CURRENT_OBJECT] =
-      g_param_spec_object ("current-object",
-                           P_("Current object"),
-                           P_("The object the builder is evaluating for"),
+      g_param_spec_object ("current-object", NULL, NULL,
                            G_TYPE_OBJECT,
                            GTK_PARAM_READWRITE);
 
@@ -329,9 +325,7 @@ gtk_builder_class_init (GtkBuilderClass *klass)
   * The scope the builder is operating in
   */
   builder_props[PROP_SCOPE] =
-      g_param_spec_object ("scope",
-                           P_("Scope"),
-                           P_("The scope the builder is operating in"),
+      g_param_spec_object ("scope", NULL, NULL,
                            GTK_TYPE_BUILDER_SCOPE,
                            GTK_PARAM_READWRITE | G_PARAM_CONSTRUCT);
 
@@ -2997,20 +2991,46 @@ _gtk_builder_check_parent (GtkBuilder                *builder,
                            const char                *parent_name,
                            GError                   **error)
 {
+  return _gtk_builder_check_parents (builder, context, error, parent_name, NULL);
+}
+
+gboolean
+_gtk_builder_check_parents (GtkBuilder                *builder,
+                            GtkBuildableParseContext  *context,
+                            GError                   **error,
+                            ...)
+{
   GtkBuilderPrivate *priv = gtk_builder_get_instance_private (builder);
   GPtrArray *stack;
   int line, col;
   const char *parent;
   const char *element;
+  va_list args;
+  gboolean in_template;
 
   stack = gtk_buildable_parse_context_get_element_stack (context);
 
   element = g_ptr_array_index (stack, stack->len - 1);
   parent = stack->len > 1 ? g_ptr_array_index (stack, stack->len - 2) : "";
 
-  if (g_str_equal (parent_name, parent) ||
-      (g_str_equal (parent_name, "object") && g_str_equal (parent, "template")))
-    return TRUE;
+  in_template = g_str_equal (parent, "template");
+
+  va_start (args, error);
+
+  while (1) {
+    char *parent_name = va_arg (args, char *);
+
+    if (parent_name == NULL)
+      break;
+
+    if (g_str_equal (parent_name, parent) || (in_template && g_str_equal (parent_name, "object")))
+      {
+        va_end (args);
+        return TRUE;
+      }
+  }
+
+  va_end (args);
 
   gtk_buildable_parse_context_get_position (context, &line, &col);
   g_set_error (error,

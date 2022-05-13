@@ -17,6 +17,8 @@
  * Author: Matthias Clasen
  */
 
+#include "config.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -34,21 +36,15 @@ usage (void)
   g_print (_("Usage:\n"
              "  gtk-builder-tool [COMMAND] [OPTION…] FILE\n"
              "\n"
+             "Perform various tasks on GtkBuilder .ui files.\n"
+             "\n"
              "Commands:\n"
              "  validate     Validate the file\n"
              "  simplify     Simplify the file\n"
              "  enumerate    List all named objects\n"
              "  preview      Preview the file\n"
-             "\n"
-             "Simplify Options:\n"
-             "  --replace    Replace the file\n"
-             "  --3to4       Convert from GTK 3 to GTK 4\n"
-             "\n"
-             "Preview Options:\n"
-             "  --id=ID      Preview only the named object\n"
-             "  --css=FILE   Use style from CSS file\n"
-             "\n"
-             "Perform various tasks on GtkBuilder .ui files.\n"));
+             "  screenshot   Take a screenshot of the file\n"
+             "\n"));
   exit (1);
 }
 
@@ -113,14 +109,14 @@ main (int argc, const char *argv[])
 
   g_log_set_writer_func (log_writer_func, NULL, NULL);
 
-  gtk_init ();
+  gtk_init_check ();
 
   gtk_test_register_all_types ();
 
-  if (argc < 3)
+  if (argc < 2)
     usage ();
 
-  if (strcmp (argv[2], "--help") == 0)
+  if (strcmp (argv[1], "--help") == 0)
     usage ();
 
   argv++;
@@ -134,6 +130,8 @@ main (int argc, const char *argv[])
     do_enumerate (&argc, &argv);
   else if (strcmp (argv[0], "preview") == 0)
     do_preview (&argc, &argv);
+  else if (strcmp (argv[0], "screenshot") == 0)
+    do_screenshot (&argc, &argv);
   else
     usage ();
 

@@ -239,16 +239,12 @@ gtk_list_item_widget_class_init (GtkListItemWidgetClass *klass)
   gobject_class->dispose = gtk_list_item_widget_dispose;
 
   properties[PROP_FACTORY] =
-    g_param_spec_object ("factory",
-                         "Factory",
-                         "Factory managing this list item",
+    g_param_spec_object ("factory", NULL, NULL,
                          GTK_TYPE_LIST_ITEM_FACTORY,
                          G_PARAM_WRITABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
   properties[PROP_SINGLE_CLICK_ACTIVATE] =
-    g_param_spec_boolean ("single-click-activate",
-                          "Single click activate",
-                          "Activate on single click",
+    g_param_spec_boolean ("single-click-activate", NULL, NULL,
                           FALSE,
                           G_PARAM_WRITABLE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS);
 
@@ -485,20 +481,27 @@ gtk_list_item_widget_update (GtkListItemWidget *self,
                              gboolean           selected)
 {
   GtkListItemWidgetPrivate *priv = gtk_list_item_widget_get_instance_private (self);
+  gboolean was_selected;
+
+  was_selected = priv->selected;
 
   if (priv->list_item)
     gtk_list_item_factory_update (priv->factory, self, position, item, selected);
   else
     gtk_list_item_widget_default_update (self, NULL, position, item, selected);
 
-  if (selected)
-    gtk_widget_set_state_flags (GTK_WIDGET (self), GTK_STATE_FLAG_SELECTED, FALSE);
-  else
-    gtk_widget_unset_state_flags (GTK_WIDGET (self), GTK_STATE_FLAG_SELECTED);
+  /* don't look at selected variable, it's not reentrancy safe */
+  if (was_selected != priv->selected)
+    {
+      if (priv->selected)
+        gtk_widget_set_state_flags (GTK_WIDGET (self), GTK_STATE_FLAG_SELECTED, FALSE);
+      else
+        gtk_widget_unset_state_flags (GTK_WIDGET (self), GTK_STATE_FLAG_SELECTED);
 
-  gtk_accessible_update_state (GTK_ACCESSIBLE (self),
-                               GTK_ACCESSIBLE_STATE_SELECTED, selected,
-                               -1);
+      gtk_accessible_update_state (GTK_ACCESSIBLE (self),
+                                   GTK_ACCESSIBLE_STATE_SELECTED, priv->selected,
+                                   -1);
+    }
 }
 
 void
@@ -515,12 +518,10 @@ gtk_list_item_widget_default_setup (GtkListItemWidget *self,
 
   gtk_list_item_widget_set_activatable (self, list_item->activatable);
 
-  if (priv->item)
-    g_object_notify (G_OBJECT (list_item), "item");
-  if (priv->position != GTK_INVALID_LIST_POSITION)
-    g_object_notify (G_OBJECT (list_item), "position");
-  if (priv->selected)
-    g_object_notify (G_OBJECT (list_item), "selected");
+  gtk_list_item_do_notify (list_item,
+                           priv->item != NULL,
+                           priv->position != GTK_INVALID_LIST_POSITION,
+                           priv->selected);
 }
 
 void
@@ -539,12 +540,10 @@ gtk_list_item_widget_default_teardown (GtkListItemWidget *self,
 
   gtk_list_item_widget_set_activatable (self, FALSE);
 
-  if (priv->item)
-    g_object_notify (G_OBJECT (list_item), "item");
-  if (priv->position != GTK_INVALID_LIST_POSITION)
-    g_object_notify (G_OBJECT (list_item), "position");
-  if (priv->selected)
-    g_object_notify (G_OBJECT (list_item), "selected");
+  gtk_list_item_do_notify (list_item,
+                           priv->item != NULL,
+                           priv->position != GTK_INVALID_LIST_POSITION,
+                           priv->selected);
 }
 
 void
@@ -554,29 +553,29 @@ gtk_list_item_widget_default_update (GtkListItemWidget *self,
                                      gpointer           item,
                                      gboolean           selected)
 {
+  /* Track notify manually instead of freeze/thaw_notify for performance reasons. */
+  gboolean notify_item = FALSE, notify_position = FALSE, notify_selected = FALSE;
   GtkListItemWidgetPrivate *priv = gtk_list_item_widget_get_instance_private (self);
 
   /* FIXME: It's kinda evil to notify external objects from here... */
-  
+
   if (g_set_object (&priv->item, item))
-    {
-      if (list_item)
-        g_object_notify (G_OBJECT (list_item), "item");
-    }
+    notify_item = TRUE;
 
   if (priv->position != position)
     {
       priv->position = position;
-      if (list_item)
-        g_object_notify (G_OBJECT (list_item), "position");
+      notify_position = TRUE;
     }
 
   if (priv->selected != selected)
     {
       priv->selected = selected;
-      if (list_item)
-        g_object_notify (G_OBJECT (list_item), "selected");
+      notify_selected = TRUE;
     }
+
+  if (list_item)
+    gtk_list_item_do_notify (list_item, notify_item, notify_position, notify_selected);
 }
 
 void

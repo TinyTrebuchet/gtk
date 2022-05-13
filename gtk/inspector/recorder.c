@@ -1423,6 +1423,17 @@ gesture_phase_name (GdkTouchpadGesturePhase phase)
   return name[phase];
 }
 
+static const char *
+scroll_unit_name (GdkScrollUnit unit)
+{
+  if (unit == GDK_SCROLL_UNIT_WHEEL)
+    return "Wheel";
+  else if (unit == GDK_SCROLL_UNIT_SURFACE)
+    return "Surface";
+  else
+    return "Incorrect value";
+}
+
 static void
 populate_event_properties (GtkListStore *store,
                            GdkEvent     *event)
@@ -1434,6 +1445,7 @@ populate_event_properties (GtkListStore *store,
   double dx, dy;
   char *tmp;
   GdkModifierType state;
+  GdkScrollUnit scroll_unit;
 
   gtk_list_store_clear (store);
 
@@ -1517,6 +1529,9 @@ populate_event_properties (GtkListStore *store,
           tmp = g_strdup_printf ("%.2f %.2f", x, y);
           add_text_row (store, "Delta", tmp);
           g_free (tmp);
+
+          scroll_unit = gdk_scroll_event_get_unit (event);
+          add_text_row (store, "Unit", scroll_unit_name (scroll_unit));
         }
       else
         {
@@ -1792,7 +1807,7 @@ static char *
 get_event_summary (GdkEvent *event)
 {
   double x, y;
-  int type;
+  GdkEventType type;
   const char *name;
 
   gdk_event_get_position (event, &x, &y);
@@ -1814,6 +1829,7 @@ get_event_summary (GdkEvent *event)
     case GDK_TOUCH_CANCEL:
     case GDK_TOUCHPAD_SWIPE:
     case GDK_TOUCHPAD_PINCH:
+    case GDK_TOUCHPAD_HOLD:
     case GDK_BUTTON_PRESS:
     case GDK_BUTTON_RELEASE:
       return g_strdup_printf ("%s (%.2f %.2f)", name, x, y);
@@ -1839,6 +1855,7 @@ get_event_summary (GdkEvent *event)
     case GDK_PAD_RING:
     case GDK_PAD_STRIP:
     case GDK_PAD_GROUP_MODE:
+    case GDK_DELETE:
       return g_strdup_printf ("%s", name);
 
     case GDK_SCROLL:
@@ -1853,6 +1870,7 @@ get_event_summary (GdkEvent *event)
         }
       break;
 
+    case GDK_EVENT_LAST:
     default:
       g_assert_not_reached ();
     }
@@ -2038,20 +2056,16 @@ gtk_inspector_recorder_class_init (GtkInspectorRecorderClass *klass)
   object_class->dispose = gtk_inspector_recorder_dispose;
 
   props[PROP_RECORDING] =
-    g_param_spec_boolean ("recording",
-                          "Recording",
-                          "Whether the recorder is currently recording",
+    g_param_spec_boolean ("recording", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE);
   props[PROP_DEBUG_NODES] =
-    g_param_spec_boolean ("debug-nodes",
-                          "Debug nodes",
-                          "Whether to insert extra debug nodes in the tree",
+    g_param_spec_boolean ("debug-nodes", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE);
 
-  props[PROP_HIGHLIGHT_SEQUENCES] = g_param_spec_boolean ("highlight-sequences", "", "", FALSE, G_PARAM_READWRITE);
-  props[PROP_SELECTED_SEQUENCE] = g_param_spec_pointer ("selected-sequence", "", "", G_PARAM_READWRITE);
+  props[PROP_HIGHLIGHT_SEQUENCES] = g_param_spec_boolean ("highlight-sequences", NULL, NULL, FALSE, G_PARAM_READWRITE);
+  props[PROP_SELECTED_SEQUENCE] = g_param_spec_pointer ("selected-sequence", NULL, NULL, G_PARAM_READWRITE);
 
   g_object_class_install_properties (object_class, LAST_PROP, props);
 

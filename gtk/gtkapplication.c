@@ -68,7 +68,7 @@
  *
  * `GtkApplication` will automatically load menus from the `GtkBuilder`
  * resource located at "gtk/menus.ui", relative to the application's
- * resource base path (see `g_application_set_resource_base_path()`).
+ * resource base path (see [method@Gio.Application.set_resource_base_path]).
  * The menu with the ID "menubar" is taken as the application's
  * menubar. Additional menus (most interesting submenus) can be named
  * and accessed via [method@Gtk.Application.get_menu_by_id] which allows for
@@ -83,8 +83,8 @@
  * resources. See [method@Gtk.IconTheme.add_resource_path] for more
  * information.
  *
- * If there is a resource located at "gtk/help-overlay.ui" which
- * defines a [class@Gtk.ShortcutsWindow] with ID "help_overlay" then
+ * If there is a resource located at `gtk/help-overlay.ui` which
+ * defines a [class@Gtk.ShortcutsWindow] with ID `help_overlay` then
  * `GtkApplication` associates an instance of this shortcuts window with
  * each [class@Gtk.ApplicationWindow] and sets up the keyboard accelerator
  * <kbd>Control</kbd>+<kbd>?</kbd> to open it. To create a menu item that
@@ -598,9 +598,7 @@ gtk_application_class_init (GtkApplicationClass *class)
    * [property@Gtk.Application:screensaver-active] property).
    */
   gtk_application_props[PROP_REGISTER_SESSION] =
-    g_param_spec_boolean ("register-session",
-                          P_("Register session"),
-                          P_("Register with the session manager"),
+    g_param_spec_boolean ("register-session", NULL, NULL,
                           FALSE,
                           G_PARAM_READWRITE|G_PARAM_STATIC_STRINGS);
 
@@ -617,9 +615,7 @@ gtk_application_class_init (GtkApplicationClass *class)
    * Linux.
    */
   gtk_application_props[PROP_SCREENSAVER_ACTIVE] =
-    g_param_spec_boolean ("screensaver-active",
-                          P_("Screensaver Active"),
-                          P_("Whether the screensaver is active"),
+    g_param_spec_boolean ("screensaver-active", NULL, NULL,
                           FALSE,
                           G_PARAM_READABLE|G_PARAM_STATIC_STRINGS);
 
@@ -629,9 +625,7 @@ gtk_application_class_init (GtkApplicationClass *class)
    * The `GMenuModel` to be used for the application's menu bar.
    */
   gtk_application_props[PROP_MENUBAR] =
-    g_param_spec_object ("menubar",
-                         P_("Menubar"),
-                         P_("The GMenuModel for the menubar"),
+    g_param_spec_object ("menubar", NULL, NULL,
                          G_TYPE_MENU_MODEL,
                          G_PARAM_READWRITE|G_PARAM_STATIC_STRINGS);
 
@@ -641,9 +635,7 @@ gtk_application_class_init (GtkApplicationClass *class)
    * The currently focused window of the application.
    */
   gtk_application_props[PROP_ACTIVE_WINDOW] =
-    g_param_spec_object ("active-window",
-                         P_("Active window"),
-                         P_("The window which most recently had focus"),
+    g_param_spec_object ("active-window", NULL, NULL,
                          GTK_TYPE_WINDOW,
                          G_PARAM_READABLE|G_PARAM_STATIC_STRINGS);
 

@@ -506,9 +506,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * The mouse pointer for the `GdkSurface`.
    */
   properties[PROP_CURSOR] =
-      g_param_spec_object ("cursor",
-                           P_("Cursor"),
-                           P_("Cursor"),
+      g_param_spec_object ("cursor", NULL, NULL,
                            GDK_TYPE_CURSOR,
                            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
@@ -518,9 +516,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * The `GdkDisplay` connection of the surface.
    */
   properties[PROP_DISPLAY] =
-      g_param_spec_object ("display",
-                           P_("Display"),
-                           P_("Display"),
+      g_param_spec_object ("display", NULL, NULL,
                            GDK_TYPE_DISPLAY,
                            G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
@@ -530,9 +526,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * The `GdkFrameClock` of the surface.
    */
   properties[PROP_FRAME_CLOCK] =
-      g_param_spec_object ("frame-clock",
-                           P_("Frame Clock"),
-                           P_("Frame Clock"),
+      g_param_spec_object ("frame-clock", NULL, NULL,
                            GDK_TYPE_FRAME_CLOCK,
                            G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
@@ -542,9 +536,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * Whether the surface is mapped.
    */
   properties[PROP_MAPPED] =
-      g_param_spec_boolean ("mapped",
-                            P_("Mapped"),
-                            P_("Mapped"),
+      g_param_spec_boolean ("mapped", NULL, NULL,
                             FALSE,
                             G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -554,9 +546,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * The width of the surface in pixels.
    */
   properties[PROP_WIDTH] =
-      g_param_spec_int ("width",
-                        P_("Width"),
-                        P_("Width"),
+      g_param_spec_int ("width", NULL, NULL,
                         0, G_MAXINT, 0,
                         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -566,9 +556,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * The height of the surface, in pixels.
    */
   properties[PROP_HEIGHT] =
-      g_param_spec_int ("height",
-                        P_("Height"),
-                        P_("Height"),
+      g_param_spec_int ("height", NULL, NULL,
                         0, G_MAXINT, 0,
                         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -578,9 +566,7 @@ gdk_surface_class_init (GdkSurfaceClass *klass)
    * The scale factor of the surface.
    */
   properties[PROP_SCALE_FACTOR] =
-      g_param_spec_int ("scale-factor",
-                        P_("Scale factor"),
-                        P_("Scale factor"),
+      g_param_spec_int ("scale-factor", NULL, NULL,
                         1, G_MAXINT, 1,
                         G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -1125,7 +1111,7 @@ gdk_surface_ensure_egl_surface (GdkSurface *self,
       gdk_display_get_egl_config_high_depth (display) != gdk_display_get_egl_config (display))
     {
       gdk_gl_context_clear_current_if_surface (self);
-      eglDestroySurface (gdk_surface_get_display (self), priv->egl_surface);
+      eglDestroySurface (gdk_display_get_egl_display (display), priv->egl_surface);
       priv->egl_surface = NULL;
     }
 

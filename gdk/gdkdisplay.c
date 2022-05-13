@@ -213,9 +213,7 @@ gdk_display_class_init (GdkDisplayClass *class)
    * %TRUE if the display properly composites the alpha channel.
    */
   props[PROP_COMPOSITED] =
-    g_param_spec_boolean ("composited",
-                          P_("Composited"),
-                          P_("Composited"),
+    g_param_spec_boolean ("composited", NULL, NULL,
                           TRUE,
                           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -225,9 +223,7 @@ gdk_display_class_init (GdkDisplayClass *class)
    * %TRUE if the display supports an alpha channel.
    */
   props[PROP_RGBA] =
-    g_param_spec_boolean ("rgba",
-                          P_("RGBA"),
-                          P_("RGBA"),
+    g_param_spec_boolean ("rgba", NULL, NULL,
                           TRUE,
                           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -237,9 +233,7 @@ gdk_display_class_init (GdkDisplayClass *class)
    * %TRUE if the display supports input shapes.
    */
   props[PROP_INPUT_SHAPES] =
-    g_param_spec_boolean ("input-shapes",
-                          P_("Input shapes"),
-                          P_("Input shapes"),
+    g_param_spec_boolean ("input-shapes", NULL, NULL,
                           TRUE,
                           G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
@@ -1628,10 +1622,10 @@ gdk_display_check_egl_extensions (EGLDisplay   egl_display,
                    /* translators: Arguments are the number of missing extensions
                     * followed by a comma-separated list of their names */
                    g_dngettext (GETTEXT_PACKAGE,
-                                "EGL implementation is missing extension %2$s",
-                                "EGL implementation is missing %d extensions: %s",
+                                "EGL implementation is missing extension %s",
+                                "EGL implementation is missing %2$d extensions: %1$s",
                                 n_missing),
-                   (int) n_missing, missing->str);
+                   missing->str, (int) n_missing);
 
       g_string_free (missing, TRUE);
       return FALSE;

@@ -360,6 +360,22 @@ intern_string_modified (GtkEntry *entry, ObjectProperty *p)
 }
 
 static void
+attr_list_modified (GtkEntry *entry, ObjectProperty *p)
+{
+  GValue val = G_VALUE_INIT;
+  PangoAttrList *attrs;
+
+  attrs = pango_attr_list_from_string (gtk_editable_get_text (GTK_EDITABLE (entry)));
+  if (!attrs)
+    return;
+
+  g_value_init (&val, PANGO_TYPE_ATTR_LIST);
+  g_value_take_boxed (&val, attrs);
+  set_property_value (p->obj, p->spec, &val);
+  g_value_unset (&val);
+}
+
+static void
 string_changed (GObject *object, GParamSpec *pspec, gpointer data)
 {
   GtkEntry *entry = GTK_ENTRY (data);
@@ -380,6 +396,36 @@ string_changed (GObject *object, GParamSpec *pspec, gpointer data)
       gtk_editable_set_text (GTK_EDITABLE (entry), str);
       unblock_controller (G_OBJECT (entry));
     }
+
+  g_value_unset (&val);
+}
+
+static void
+attr_list_changed (GObject *object, GParamSpec *pspec, gpointer data)
+{
+  GtkEntry *entry = GTK_ENTRY (data);
+  GValue val = G_VALUE_INIT;
+  char *str = NULL;
+  const char *text;
+  PangoAttrList *attrs;
+
+  g_value_init (&val, PANGO_TYPE_ATTR_LIST);
+  get_property_value (object, pspec, &val);
+
+  attrs = g_value_get_boxed (&val);
+  if (attrs)
+    str = pango_attr_list_to_string (attrs);
+  if (str == NULL)
+    str = g_strdup ("");
+  text = gtk_editable_get_text (GTK_EDITABLE (entry));
+  if (g_strcmp0 (str, text) != 0)
+    {
+      block_controller (G_OBJECT (entry));
+      gtk_editable_set_text (GTK_EDITABLE (entry), str);
+      unblock_controller (G_OBJECT (entry));
+    }
+
+  g_free (str);
 
   g_value_unset (&val);
 }
@@ -1168,6 +1214,18 @@ property_editor (GObject                *object,
       gtk_widget_set_halign (prop_edit, GTK_ALIGN_START);
       gtk_widget_set_valign (prop_edit, GTK_ALIGN_CENTER);
     }
+  else if (type == G_TYPE_PARAM_BOXED &&
+           G_PARAM_SPEC_VALUE_TYPE (spec) == PANGO_TYPE_ATTR_LIST)
+    {
+      prop_edit = gtk_entry_new ();
+
+      g_object_connect_property (object, spec,
+                                 G_CALLBACK (attr_list_changed),
+                                 prop_edit, G_OBJECT (prop_edit));
+
+      connect_controller (G_OBJECT (prop_edit), "changed",
+                          object, spec, G_CALLBACK (attr_list_modified));
+    }
   else if (type == GTK_TYPE_PARAM_SPEC_EXPRESSION)
     {
       GtkExpression *expression;
@@ -1188,9 +1246,6 @@ property_editor (GObject                *object,
       gtk_widget_set_halign (prop_edit, GTK_ALIGN_START);
       gtk_widget_set_valign (prop_edit, GTK_ALIGN_CENTER);
     }
-
-  if (g_param_spec_get_blurb (spec))
-    gtk_widget_set_tooltip_text (prop_edit, g_param_spec_get_blurb (spec));
 
   notify_property (object, spec);
 
@@ -1733,15 +1788,15 @@ gtk_inspector_prop_editor_class_init (GtkInspectorPropEditorClass *klass)
                   G_TYPE_NONE, 3, G_TYPE_OBJECT, G_TYPE_STRING, G_TYPE_STRING);
 
   g_object_class_install_property (object_class, PROP_OBJECT,
-      g_param_spec_object ("object", "Object", "The object owning the property",
+      g_param_spec_object ("object", NULL, NULL,
                            G_TYPE_OBJECT, G_PARAM_READWRITE|G_PARAM_CONSTRUCT));
 
   g_object_class_install_property (object_class, PROP_NAME,
-      g_param_spec_string ("name", "Name", "The property name",
+      g_param_spec_string ("name", NULL, NULL,
                            NULL, G_PARAM_READWRITE|G_PARAM_CONSTRUCT));
 
   g_object_class_install_property (object_class, PROP_SIZE_GROUP,
-      g_param_spec_object ("size-group", "Size group", "The size group for the value part",
+      g_param_spec_object ("size-group", NULL, NULL,
                            GTK_TYPE_SIZE_GROUP, G_PARAM_READWRITE|G_PARAM_CONSTRUCT));
 }
 

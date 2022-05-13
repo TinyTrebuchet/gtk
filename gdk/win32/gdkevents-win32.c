@@ -78,6 +78,8 @@
 #include <tchar.h>
 #include <tpcshrd.h>
 
+#include <stdint.h>
+
 #define GDK_MOD2_MASK (1 << 4)
 
 #ifndef XBUTTON1
@@ -873,6 +875,7 @@ _gdk_win32_append_event (GdkEvent *event)
 {
   GdkDisplay *display;
   GList *link;
+  gulong serial;
 
   display = gdk_display_get_default ();
 
@@ -880,8 +883,9 @@ _gdk_win32_append_event (GdkEvent *event)
 #if 1
   link = _gdk_event_queue_append (display, event);
   GDK_NOTE (EVENTS, _gdk_win32_print_event (event));
+  serial = _gdk_display_get_next_serial (display);
   /* event morphing, the passed in may not be valid afterwards */
-  _gdk_windowing_got_event (display, link, event, 0);
+  _gdk_windowing_got_event (display, link, event, serial);
 #else
   _gdk_event_queue_append (display, event);
   GDK_NOTE (EVENTS, _gdk_win32_print_event (event));
@@ -1758,9 +1762,6 @@ gdk_event_translate (MSG *msg,
 
   int i;
 
-  double delta_x, delta_y;
-  GdkScrollDirection direction;
-
   display = gdk_display_get_default ();
   win32_display = GDK_WIN32_DISPLAY (display);
 
@@ -2242,6 +2243,10 @@ gdk_event_translate (MSG *msg,
 	button = 5;
 
     buttonup0:
+    {
+      gboolean release_implicit_grab = FALSE;
+      GdkSurface *prev_surface = NULL;
+
       GDK_NOTE (EVENTS,
 		g_print (" (%d,%d)",
 			 GET_X_LPARAM (msg->lParam), GET_Y_LPARAM (msg->lParam)));
@@ -2251,41 +2256,18 @@ gdk_event_translate (MSG *msg,
       g_set_object (&window, find_window_for_mouse_event (window, msg));
 
       if (pointer_grab != NULL && pointer_grab->implicit)
-	{
-	  int state = build_pointer_event_state (msg);
+        {
+          int state = build_pointer_event_state (msg);
 
-	  /* We keep the implicit grab until no buttons at all are held down */
-	  if ((state & GDK_ANY_BUTTON_MASK & ~(GDK_BUTTON1_MASK << (button - 1))) == 0)
-	    {
-	      ReleaseCapture ();
+          /* We keep the implicit grab until no buttons at all are held down */
+          if ((state & GDK_ANY_BUTTON_MASK & ~(GDK_BUTTON1_MASK << (button - 1))) == 0)
+            {
+              release_implicit_grab = TRUE;
+              prev_surface = pointer_grab->surface;
+            }
+        }
 
-	      new_window = NULL;
-	      hwnd = WindowFromPoint (msg->pt);
-	      if (hwnd != NULL)
-		{
-		  POINT client_pt = msg->pt;
-
-		  ScreenToClient (hwnd, &client_pt);
-		  GetClientRect (hwnd, &rect);
-		  if (PtInRect (&rect, client_pt))
-		    new_window = gdk_win32_handle_table_lookup (hwnd);
-		}
-
-	      synthesize_crossing_events (display,
-                                          _gdk_device_manager->system_pointer,
-                                          pointer_grab->surface, new_window,
-					  GDK_CROSSING_UNGRAB,
-					  &msg->pt,
-					  0, /* TODO: Set right mask */
-					  _gdk_win32_get_next_tick (msg->time),
-					  FALSE);
-	      g_set_object (&mouse_window, new_window);
-	      mouse_window_ignored_leave = NULL;
-	    }
-	}
-
-      generate_button_event (GDK_BUTTON_RELEASE, button,
-			     window, msg);
+      generate_button_event (GDK_BUTTON_RELEASE, button, window, msg);
 
       impl = GDK_WIN32_SURFACE (window);
 
@@ -2294,8 +2276,37 @@ gdk_event_translate (MSG *msg,
           impl->drag_move_resize_context.button == button)
         gdk_win32_surface_end_move_resize_drag (window);
 
+      if (release_implicit_grab)
+        {
+          ReleaseCapture ();
+
+          new_window = NULL;
+          hwnd = WindowFromPoint (msg->pt);
+          if (hwnd != NULL)
+            {
+              POINT client_pt = msg->pt;
+
+              ScreenToClient (hwnd, &client_pt);
+              GetClientRect (hwnd, &rect);
+              if (PtInRect (&rect, client_pt))
+                new_window = gdk_win32_handle_table_lookup (hwnd);
+            }
+
+          synthesize_crossing_events (display,
+                                      _gdk_device_manager->system_pointer,
+                                      prev_surface, new_window,
+                                      GDK_CROSSING_UNGRAB,
+                                      &msg->pt,
+                                      0, /* TODO: Set right mask */
+                                      _gdk_win32_get_next_tick (msg->time),
+                                     FALSE);
+          g_set_object (&mouse_window, new_window);
+          mouse_window_ignored_leave = NULL;
+        }
+
       return_val = TRUE;
       break;
+    }
 
     case WM_MOUSEMOVE:
       GDK_NOTE (EVENTS,
@@ -2320,60 +2331,35 @@ gdk_event_translate (MSG *msg,
 
       pen_touch_input = FALSE;
 
-      new_window = window;
+      g_set_object (&window, find_window_for_mouse_event (window, msg));
 
-      if (pointer_grab != NULL)
-	{
-	  POINT pt;
-	  pt = msg->pt;
-
-	  new_window = NULL;
-	  hwnd = WindowFromPoint (pt);
-	  if (hwnd != NULL)
-	    {
-	      POINT client_pt = pt;
-
-	      ScreenToClient (hwnd, &client_pt);
-	      GetClientRect (hwnd, &rect);
-	      if (PtInRect (&rect, client_pt))
-		new_window = gdk_win32_handle_table_lookup (hwnd);
-	    }
-
-	  if (!pointer_grab->owner_events &&
-	      new_window != NULL &&
-	      new_window != pointer_grab->surface)
-	    new_window = NULL;
-	}
-
-      if (mouse_window != new_window)
+      if (mouse_window != window)
 	{
 	  GDK_NOTE (EVENTS, g_print (" mouse_window %p -> %p",
 				     mouse_window ? GDK_SURFACE_HWND (mouse_window) : NULL,
-				     new_window ? GDK_SURFACE_HWND (new_window) : NULL));
+                                     window ? GDK_SURFACE_HWND (window) : NULL));
 	  synthesize_crossing_events (display,
                                       _gdk_device_manager->system_pointer,
-				      mouse_window, new_window,
+                                      mouse_window, window,
 				      GDK_CROSSING_NORMAL,
 				      &msg->pt,
 				      0, /* TODO: Set right mask */
 				      _gdk_win32_get_next_tick (msg->time),
 				      FALSE);
-	  g_set_object (&mouse_window, new_window);
+	  g_set_object (&mouse_window, window);
 	  mouse_window_ignored_leave = NULL;
-	  if (new_window != NULL)
-	    track_mouse_event (TME_LEAVE, GDK_SURFACE_HWND (new_window));
+	  if (window != NULL)
+	    track_mouse_event (TME_LEAVE, GDK_SURFACE_HWND (window));
 	}
-      else if (new_window != NULL &&
-	       new_window == mouse_window_ignored_leave)
+      else if (window != NULL && window == mouse_window_ignored_leave)
 	{
 	  /* If we ignored a leave event for this window and we're now getting
 	     input again we need to re-arm the mouse tracking, as that was
 	     cancelled by the mouseleave. */
 	  mouse_window_ignored_leave = NULL;
-	  track_mouse_event (TME_LEAVE, GDK_SURFACE_HWND (new_window));
+          track_mouse_event (TME_LEAVE, GDK_SURFACE_HWND (window));
 	}
 
-      g_set_object (&window, find_window_for_mouse_event (window, msg));
       impl = GDK_WIN32_SURFACE (window);
 
       /* If we haven't moved, don't create any GDK event. Windows
@@ -2672,65 +2658,56 @@ gdk_event_translate (MSG *msg,
 
     case WM_MOUSEWHEEL:
     case WM_MOUSEHWHEEL:
+    {
+      int16_t scroll_x = 0;
+      int16_t scroll_y = 0;
+
+      char classname[64];
+
       GDK_NOTE (EVENTS, g_print (" %d", (short) HIWORD (msg->wParam)));
 
-      /* WM_MOUSEWHEEL is delivered to the focus window. Work around
-       * that. Also, the position is in screen coordinates, not client
-       * coordinates as with the button messages. I love the
-       * consistency of Windows.
-       */
+      /* On versions of Windows before Windows 10, the WM_MOUSEWHEEL
+       * is delivered to the window that has keyboard focus, not the
+       * window under the pointer. Work around that.
+       * Also, the position is in screen coordinates, not client
+       * coordinates as with the button messages. */
       point.x = GET_X_LPARAM (msg->lParam);
       point.y = GET_Y_LPARAM (msg->lParam);
 
-      if ((hwnd = WindowFromPoint (point)) == NULL)
-	break;
+      hwnd = WindowFromPoint (point);
+      if (!hwnd)
+        break;
 
-      {
-	char classname[64];
+      /* The synapitics trackpad drivers have this irritating
+         feature where it pops up a window right under the pointer
+         when you scroll. We backtrack and to the toplevel and
+         find the innermost child instead. */
+      if (GetClassNameA (hwnd, classname, sizeof(classname)) &&
+          strcmp (classname, SYNAPSIS_ICON_WINDOW_CLASS) == 0)
+        {
+          HWND hwndc;
 
-	/* The synapitics trackpad drivers have this irritating
-	   feature where it pops up a window right under the pointer
-	   when you scroll. We backtrack and to the toplevel and
-	   find the innermost child instead. */
-	if (GetClassNameA (hwnd, classname, sizeof(classname)) &&
-	    strcmp (classname, SYNAPSIS_ICON_WINDOW_CLASS) == 0)
-	  {
-	    HWND hwndc;
+          /* Find our toplevel window */
+          hwnd = GetAncestor (msg->hwnd, GA_ROOT);
 
-	    /* Find our toplevel window */
-	    hwnd = GetAncestor (msg->hwnd, GA_ROOT);
-
-	    /* Walk back up to the outermost child at the desired point */
-	    do {
-	      ScreenToClient (hwnd, &point);
-	      hwndc = ChildWindowFromPoint (hwnd, point);
-	      ClientToScreen (hwnd, &point);
-	    } while (hwndc != hwnd && (hwnd = hwndc, 1));
-	  }
-      }
+          /* Walk back up to the outermost child at the desired point */
+          do {
+            ScreenToClient (hwnd, &point);
+            hwndc = ChildWindowFromPoint (hwnd, point);
+            ClientToScreen (hwnd, &point);
+          } while (hwndc != hwnd && (hwnd = hwndc, 1));
+        }
 
       msg->hwnd = hwnd;
-      if ((new_window = gdk_win32_handle_table_lookup (msg->hwnd)) == NULL)
-	break;
 
-      if (new_window != window)
-	{
-	  g_set_object (&window, new_window);
-	}
-
-      impl = GDK_WIN32_SURFACE (window);
-      ScreenToClient (msg->hwnd, &point);
-
-      delta_x = delta_y = 0.0;
+      g_set_object (&window, gdk_win32_handle_table_lookup (hwnd));
+      if (!window)
+        break;
 
       if (msg->message == WM_MOUSEWHEEL)
-        delta_y = (double) GET_WHEEL_DELTA_WPARAM (msg->wParam) / (double) WHEEL_DELTA;
+        scroll_y = GET_WHEEL_DELTA_WPARAM (msg->wParam);
       else if (msg->message == WM_MOUSEHWHEEL)
-        delta_x = (double) GET_WHEEL_DELTA_WPARAM (msg->wParam) / (double) WHEEL_DELTA;
-      /* Positive delta scrolls up, not down,
-         see API documentation for WM_MOUSEWHEEL message.
-       */
-      delta_y *= -1.0;
+        scroll_x = GET_WHEEL_DELTA_WPARAM (msg->wParam);
 
       _gdk_device_virtual_set_active (_gdk_device_manager->core_pointer,
                                       _gdk_device_manager->system_pointer);
@@ -2740,33 +2717,17 @@ gdk_event_translate (MSG *msg,
                                     NULL,
                                     _gdk_win32_get_next_tick (msg->time),
                                     build_pointer_event_state (msg),
-                                    delta_x,
-                                    delta_y,
-                                    FALSE);
-
-      /* Append the discrete version too */
-      direction = 0;
-      if (msg->message == WM_MOUSEWHEEL)
-	direction = (((short) HIWORD (msg->wParam)) > 0)
-	              ? GDK_SCROLL_UP
-                      : GDK_SCROLL_DOWN;
-      else if (msg->message == WM_MOUSEHWHEEL)
-	direction = (((short) HIWORD (msg->wParam)) > 0)
-                      ? GDK_SCROLL_RIGHT
-                      : GDK_SCROLL_LEFT;
-
-      event = gdk_scroll_event_new_discrete (window,
-                                             device_manager_win32->core_pointer,
-                                             NULL,
-                                             _gdk_win32_get_next_tick (msg->time),
-                                             build_pointer_event_state (msg),
-                                             direction,
-                                             TRUE);
+                                    (double) scroll_x / (double) WHEEL_DELTA,
+                                    (double) -scroll_y / (double) WHEEL_DELTA,
+                                    FALSE,
+                                    GDK_SCROLL_UNIT_WHEEL);
 
       _gdk_win32_append_event (event);
 
+      *ret_valp = 0;
       return_val = TRUE;
-      break;
+    }
+    break;
 
      case WM_MOUSEACTIVATE:
        {

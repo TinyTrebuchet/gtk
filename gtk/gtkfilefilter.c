@@ -235,9 +235,7 @@ gtk_file_filter_class_init (GtkFileFilterClass *class)
    * user interface if there is a selectable list of filters.
    */
   props[PROP_NAME] =
-      g_param_spec_string ("name",
-                           P_("Name"),
-                           P_("The human-readable name for this filter"),
+      g_param_spec_string ("name", NULL, NULL,
                            NULL,
                            G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_EXPLICIT_NOTIFY);
 
@@ -283,7 +281,8 @@ parser_start_element (GtkBuildableParseContext  *context,
     }
 
   if (strcmp (element_name, "mime-types") == 0 ||
-      strcmp (element_name, "patterns") == 0)
+      strcmp (element_name, "patterns") == 0 ||
+      strcmp (element_name, "suffixes") == 0)
     {
       if (!_gtk_builder_check_parent (data->builder, context, "object", error))
         return;
@@ -338,7 +337,7 @@ parser_end_element (GtkBuildableParseContext  *context,
 {
   SubParserData *data = (SubParserData*)user_data;
 
-  if (data->string)
+  if (data->string && data->parsing)
     {
       switch (data->type)
         {
@@ -422,7 +421,8 @@ gtk_file_filter_buildable_custom_tag_end (GtkBuildable *buildable,
                                           gpointer      user_data)
 {
   if (strcmp (tagname, "mime-types") == 0 ||
-      strcmp (tagname, "patterns") == 0)
+      strcmp (tagname, "patterns") == 0 ||
+      strcmp (tagname, "suffixes") == 0)
     {
       SubParserData *data = (SubParserData*)user_data;
 
