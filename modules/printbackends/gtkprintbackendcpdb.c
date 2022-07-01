@@ -43,9 +43,10 @@ typedef struct {
  */
 G_DEFINE_DYNAMIC_TYPE (GtkPrintBackendCpdb, gtk_print_backend_cpdb, GTK_TYPE_PRINT_BACKEND)
 
-
-// created for add_printer_callback and remove_printer_callback
-static GtkPrintBackend *gtkPrintBackend;
+ /*
+  * List of all GtkPrintBackend objects, when multiple print dialogs are opened simultaneously 
+  */
+static GList *gtk_print_backends = NULL;
 
 static GObjectClass *backend_parent_class;
 
@@ -83,7 +84,7 @@ g_io_module_query (void)
  * GtkPrintBackendCpdb
  */
 
-/**
+/*
  * gtk_print_backend_cpdb_new:
  *
  * Creates a new #GtkPrintBackendCpdb object. #GtkPrintBackendCpdb
@@ -120,6 +121,7 @@ gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *klass)
   backend_class->printer_get_capabilities = cpdb_printer_get_capabilities;
   backend_class->printer_get_options = cpdb_printer_get_options;
   backend_class->printer_list_papers = cpdb_printer_list_papers;
+  backend_class->printer_get_default_page_size = cpdb_printer_get_default_page_size;
   backend_class->printer_get_settings_from_options = cpdb_printer_get_settings_from_options;
   backend_class->printer_prepare_for_print = cpdb_printer_prepare_for_print;
   backend_class->printer_create_cairo_surface = cpdb_printer_create_cairo_surface;
@@ -145,14 +147,16 @@ gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
 {
   g_print ("Initialzing CPDB backend object\n");
 
-  g_print ("Creating frontendObj for CPDB backend\n");
-  cpdb_backend->f = get_new_FrontendObj  (NULL,
+  char *name = g_strdup_printf ("Gtk-%d", g_list_length (gtk_print_backends) + 1);
+
+  g_print ("Creating frontendObj for CPDB backend: %s\n", name);
+  cpdb_backend->f = get_new_FrontendObj  (name,
                                          (event_callback) add_printer_callback,
                                          (event_callback) remove_printer_callback);
-
+  g_free (name);
   ignore_last_saved_settings(cpdb_backend->f);
 
-  gtkPrintBackend = GTK_PRINT_BACKEND (cpdb_backend);
+  gtk_print_backends = g_list_prepend (gtk_print_backends, cpdb_backend);
 
   g_print ("Connecting to DBUS\n");
   connect_to_dbus (cpdb_backend->f); // TODO: add disconnect_from_dbus?
@@ -426,15 +430,40 @@ cpdb_printer_get_options (GtkPrinter *printer,
       g_object_unref (gtk_option);
     }
 
-  gtk_option = gtk_printer_option_new ("borderless", "Borderless", GTK_PRINTER_OPTION_TYPE_BOOLEAN);
-  gtk_printer_option_allocate_choices (gtk_option, 2);
-  // gtk_option->choices[0] = g_strdup("True");
-  // gtk_option->choices_display[0] = g_strdup("True");
-  // gtk_option->choices[1] = g_strdup("False");
-  // gtk_option->choices_display[1] = g_strdup("False");
-  gtk_option->group = g_strdup ("Advanced");
-  gtk_printer_option_set_add (gtk_option_set, gtk_option);
-  g_object_unref (gtk_option);
+  /* Check if borderles printing is supprted */
+  bool borderless = true;
+  const char *attrs[] = {"media-top-margin", "media-bottom-margin", "media-left-margin", "media-right-margin"};
+  for (int i=0; i<4; i++) 
+  {
+    cpdb_option = get_Option (p, (gchar *) attrs[i]);
+    bool found = false;
+    for (int j=0; j<cpdb_option->num_supported; j++) 
+    {
+      if (g_strcmp0(cpdb_option->supported_values[j], "0") == 0) 
+      {
+        found = true;
+        break;
+      }
+    }
+    if (!found)
+    {
+      borderless = false;
+      break;
+    }
+  }
+  
+  if (borderless)
+  {
+    gtk_option = gtk_printer_option_new ("borderless", "Borderless", GTK_PRINTER_OPTION_TYPE_BOOLEAN);
+    gtk_printer_option_allocate_choices (gtk_option, 2);
+    gtk_option->choices[0] = g_strdup ("True");
+    gtk_option->choices_display[0] = g_strdup ("True");
+    gtk_option->choices[1] = g_strdup ("False");
+    gtk_option->choices_display[1] = g_strdup ("False");
+    gtk_option->group = g_strdup ("Advanced");
+    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+    g_object_unref (gtk_option);
+  }
 
   return gtk_option_set;
 }
@@ -442,34 +471,79 @@ cpdb_printer_get_options (GtkPrinter *printer,
 static GList *
 cpdb_printer_list_papers (GtkPrinter *printer)
 {
-  GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
-  PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+  printf("Listing papers\n");
+
+  int width, height;
+  char *display_name;
   GList *result = NULL;
-  Option *cpdb_option;
+  Option *media;
   GtkPageSetup *page_setup;
   GtkPaperSize *paper_size;
+  GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
+  PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
 
-  cpdb_option = get_Option (p, (gchar *) "media");
-  if (cpdb_option != NULL)
+  media = get_Option (p, (gchar *) "media");
+  if (media != NULL)
+  {
+    for (int i=0; i<media->num_supported; i++)
     {
-      for (int i=0; i<cpdb_option->num_supported; i++)
-        {
-          // TODO: Add support for custom paper sizes
-          if (!g_str_has_prefix (cpdb_option->supported_values[i], "custom_min") || 
-              !g_str_has_prefix (cpdb_option->supported_values[i], "custom_max")) 
-          {
-            page_setup = gtk_page_setup_new ();
-            paper_size = gtk_paper_size_new (cpdb_option->supported_values[i]);
+      if (!g_str_has_prefix (media->supported_values[i], "custom_min") && 
+          !g_str_has_prefix (media->supported_values[i], "custom_max")) 
+      {
+        display_name = get_human_readable_choice_name (p, (char *) "media", media->supported_values[i]);
+        get_media_size(p, (const char *) media->supported_values[i], &width, &height);
 
-            gtk_page_setup_set_paper_size (page_setup, paper_size);
-            gtk_paper_size_free (paper_size);
+        page_setup = gtk_page_setup_new ();
 
-            result = g_list_append (result, page_setup);
-          }
-        }
+        paper_size = gtk_paper_size_new_custom (media->supported_values[i], 
+                                                display_name,
+                                                width/100.0,
+                                                height/100,
+                                                GTK_UNIT_MM);
+
+        gtk_page_setup_set_paper_size (page_setup, paper_size);
+        gtk_paper_size_free (paper_size);
+
+        result = g_list_prepend (result, page_setup);
+      }
     }
+    result = g_list_reverse (result);
+  }
 
+  // TODO: fix bug with custom paper size dialog
   return result;
+}
+
+static GtkPageSetup *
+cpdb_printer_get_default_page_size (GtkPrinter *printer)
+{
+  int width, height;
+  char *display_name;
+  Option *media;
+  GtkPageSetup *page_setup = NULL;
+  GtkPaperSize *paper_size;
+  GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
+  PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  media = get_Option (p, (gchar *) "media");
+  if (media != NULL)
+  {
+    display_name = get_human_readable_choice_name (p, (char *) "media", media->default_value);
+    get_media_size(p, (const char *) media->default_value, &width, &height);
+
+    page_setup = gtk_page_setup_new ();
+
+    paper_size = gtk_paper_size_new_custom (media->default_value, 
+                                            display_name,
+                                            width/100.0,
+                                            height/100,
+                                            GTK_UNIT_MM);
+
+    gtk_page_setup_set_paper_size (page_setup, paper_size);
+    gtk_paper_size_free (paper_size);
+  }
+
+  return page_setup;
 }
 
 
@@ -480,36 +554,6 @@ void func (GtkPrinterOption *option, gpointer user_data)
 	printf("Value: %s\n", option->value);
 }
 
-static void
-gtk_print_backend_cpdb_configure_settings (GtkPrintJob *job)
-{
-	printf("Configuring print settings\n");
-
-	GtkPrintSettings *settings;
-	GtkPrinter *printer;
-
-	settings = gtk_print_job_get_settings (job);
-	printer = gtk_print_job_get_printer (job);
-
-	gtk_print_settings_foreach (settings, gtk_printer_cpdb_configure_settings, printer);
-}
-
-static void
-gtk_printer_cpdb_configure_settings (const char *key,
-                                     const char *value,
-                                     gpointer user_data)
-{
-  GtkPrinterCpdb *printer_cpdb;
-	PrinterObj *p;
-
-	printer_cpdb = GTK_PRINTER_CPDB (user_data);
-  p = gtk_printer_cpdb_get_pObj (printer_cpdb);
-
-  printf ("Adding setting: %s -> %s\n", key, value);
-	add_setting_to_printer(p, (char *) key, (char *) value);
-}
-	
-
 
 /*
  * This method is invoked when the print button on the print dialog is pressed.
@@ -518,8 +562,8 @@ gtk_printer_cpdb_configure_settings (const char *key,
  */
 static void
 cpdb_printer_get_settings_from_options (GtkPrinter *printer,
-										GtkPrinterOptionSet *options,
-										GtkPrintSettings *settings)
+										                    GtkPrinterOptionSet *options,
+										                    GtkPrintSettings *settings)
 {
 	GtkPrinterOption *option;
 	
@@ -678,6 +722,31 @@ cpdb_printer_create_cairo_surface  (GtkPrinter *printer,
   return surface;
 }
 
+static void
+gtk_printer_cpdb_configure_settings (const char *key,
+                                     const char *value,
+                                     gpointer user_data)
+{
+  GtkPrinterCpdb *printer_cpdb;
+	PrinterObj *p;
+
+	printer_cpdb = GTK_PRINTER_CPDB (user_data);
+  p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  printf ("Adding setting: %s -> %s\n", key, value);
+	add_setting_to_printer(p, (char *) key, (char *) value);
+}
+
+static void
+gtk_printer_cpdb_configure_page_setup (GtkPrinter *printer,
+                                       GtkPageSetup *page_setup)
+{
+  printf("Configuring page_setup");
+
+  GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
+  // TODO: add custom page support
+  
+}
 
 static void
 cpdb_printer_prepare_for_print (GtkPrinter *printer,
@@ -711,7 +780,10 @@ cpdb_printer_prepare_for_print (GtkPrinter *printer,
   if (scale != 100.0)
     gtk_print_job_set_scale (print_job, scale / 100.0);
 
+  printf ("Configuring print settings\n");
+  gtk_print_settings_foreach (settings, gtk_printer_cpdb_configure_settings, printer);
 
+  gtk_printer_cpdb_configure_page_setup (printer, page_setup);
 }
 
 
@@ -834,8 +906,6 @@ cpdb_print_stream  (GtkPrintBackend *backend,
 
   printf("Generating print stream\n");
   
-  gtk_print_backend_cpdb_configure_settings (job);
-  
   ps = g_new0 (_PrintStreamData, 1);
   ps->callback = callback;
   ps->user_data = user_data;
@@ -873,12 +943,24 @@ error:
 
 }
 
+static gint
+cpdb_find_backend (gconstpointer a,
+                   gconstpointer b)
+{
+  GtkPrintBackendCpdb *backend_cpdb = GTK_PRINT_BACKEND_CPDB (a);
+  if (backend_cpdb != NULL && backend_cpdb->f == b) return 0;
+  return 1;
+}
+
 static void
 add_printer_callback (FrontendObj *f, PrinterObj *p)
 {
   g_message("Found Printer %s : %s!\n", p->name, p->backend_name);
 
-  cpdb_add_gtk_printer (p, gtkPrintBackend);
+  GList *backend = g_list_find_custom (gtk_print_backends, f, cpdb_find_backend);
+
+  if (backend != NULL)
+    cpdb_add_gtk_printer (p, GTK_PRINT_BACKEND (backend->data));
 }
 
 static void
@@ -900,7 +982,7 @@ cpdb_add_gtk_printer (PrinterObj *p, GtkPrintBackend *backend)
 
   cpdb_printer = g_object_new (GTK_TYPE_PRINTER_CPDB,
                                "name", p->name,
-                               "backend", GTK_PRINT_BACKEND_CPDB (gtkPrintBackend),
+                               "backend", GTK_PRINT_BACKEND_CPDB (backend),
                                NULL);
   gtk_printer_cpdb_set_pObj (cpdb_printer, p);
 

@@ -34,6 +34,7 @@ static GtkPrinterOptionSet *cpdb_printer_get_options          (GtkPrinter *print
                                                                GtkPrintCapabilities capabilities);
                                                                
 static GList *cpdb_printer_list_papers                        (GtkPrinter *printer);
+static GtkPageSetup *cpdb_printer_get_default_page_size       (GtkPrinter *printer);
 
 static void cpdb_fill_gtk_option                              (GtkPrinterOption *gtk_option,
                                                                Option *cpdb_option,
@@ -68,7 +69,7 @@ void func                                                     (GtkPrinterOption 
 static char *localtime_to_utctime                             (const char *local_time);
 static gboolean supports_am_pm                                (void);
 
-static void gtk_print_backend_cpdb_configure_settings 		  (GtkPrintJob *job);
+static void gtk_printer_cpdb_configure_page_setup 		      (GtkPrinter *printer, GtkPageSetup *page_setup);
 static void gtk_printer_cpdb_configure_settings				  (const char *key, const char *value, gpointer user_data);
 
 static cairo_surface_t *cpdb_printer_create_cairo_surface     (GtkPrinter *printer,
