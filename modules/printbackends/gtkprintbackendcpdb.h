@@ -64,13 +64,15 @@ static void cpdb_print_stream                                 (GtkPrintBackend *
                                                                gpointer user_data,
                                                                GDestroyNotify dnotify);
 
-void func                                                     (GtkPrinterOption *option, gpointer user_data);
-
 static char *localtime_to_utctime                             (const char *local_time);
 static gboolean supports_am_pm                                (void);
 
-static void gtk_printer_cpdb_configure_page_setup 		      (GtkPrinter *printer, GtkPageSetup *page_setup);
-static void gtk_printer_cpdb_configure_settings				  (const char *key, const char *value, gpointer user_data);
+static void gtk_printer_cpdb_configure_page_setup 		      (GtkPrinter *printer, 
+                                                               GtkPageSetup *page_setup, 
+                                                               GtkPrintSettings *settings);
+static void gtk_printer_cpdb_configure_settings				  (const char *key, 
+                                                               const char *value, 
+                                                               gpointer user_data);
 
 static cairo_surface_t *cpdb_printer_create_cairo_surface     (GtkPrinter *printer,
                                                                GtkPrintSettings *settings,

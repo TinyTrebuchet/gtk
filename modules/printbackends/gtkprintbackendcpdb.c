@@ -213,7 +213,7 @@ cpdb_printer_get_capabilities (GtkPrinter *printer)
   PrinterObj *p = gtk_printer_cpdb_get_pObj (cpdb_printer);
 
   cpdb_option = get_Option (p, (gchar *) "page-set");
-  if (cpdb_option != NULL && cpdb_option->num_supported > 1)
+  if (cpdb_option != NULL && cpdb_option->num_supported >= 3)
   {
     capabilities |= GTK_PRINT_CAPABILITY_PAGE_SET;
   }
@@ -454,12 +454,8 @@ cpdb_printer_get_options (GtkPrinter *printer,
   
   if (borderless)
   {
+    // TODO: add borderless option properly
     gtk_option = gtk_printer_option_new ("borderless", "Borderless", GTK_PRINTER_OPTION_TYPE_BOOLEAN);
-    gtk_printer_option_allocate_choices (gtk_option, 2);
-    gtk_option->choices[0] = g_strdup ("True");
-    gtk_option->choices_display[0] = g_strdup ("True");
-    gtk_option->choices[1] = g_strdup ("False");
-    gtk_option->choices_display[1] = g_strdup ("False");
     gtk_option->group = g_strdup ("Advanced");
     gtk_printer_option_set_add (gtk_option_set, gtk_option);
     g_object_unref (gtk_option);
@@ -475,12 +471,18 @@ cpdb_printer_list_papers (GtkPrinter *printer)
 
   int width, height;
   char *display_name;
+  double left, right, top, bottom;
   GList *result = NULL;
   Option *media;
   GtkPageSetup *page_setup;
   GtkPaperSize *paper_size;
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
   PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  left = g_ascii_strtod (get_default (p, (char *) "media-left-margin"), NULL) / 100.0;
+  right = g_ascii_strtod (get_default (p, (char *) "media-right-margin"), NULL) / 100.0;
+  top = g_ascii_strtod (get_default (p, (char *) "media-top-margin"), NULL) / 100.0;
+  bottom = g_ascii_strtod (get_default (p, (char *) "media-bottom-margin"), NULL) / 100.0;
 
   media = get_Option (p, (gchar *) "media");
   if (media != NULL)
@@ -498,10 +500,15 @@ cpdb_printer_list_papers (GtkPrinter *printer)
         paper_size = gtk_paper_size_new_custom (media->supported_values[i], 
                                                 display_name,
                                                 width/100.0,
-                                                height/100,
+                                                height/100.0,
                                                 GTK_UNIT_MM);
 
         gtk_page_setup_set_paper_size (page_setup, paper_size);
+        gtk_page_setup_set_left_margin (page_setup, left, GTK_UNIT_MM);
+        gtk_page_setup_set_right_margin (page_setup, right, GTK_UNIT_MM);
+        gtk_page_setup_set_top_margin (page_setup, top, GTK_UNIT_MM);
+        gtk_page_setup_set_bottom_margin (page_setup, bottom, GTK_UNIT_MM);
+
         gtk_paper_size_free (paper_size);
 
         result = g_list_prepend (result, page_setup);
@@ -536,7 +543,7 @@ cpdb_printer_get_default_page_size (GtkPrinter *printer)
     paper_size = gtk_paper_size_new_custom (media->default_value, 
                                             display_name,
                                             width/100.0,
-                                            height/100,
+                                            height/100.0,
                                             GTK_UNIT_MM);
 
     gtk_page_setup_set_paper_size (page_setup, paper_size);
@@ -544,14 +551,6 @@ cpdb_printer_get_default_page_size (GtkPrinter *printer)
   }
 
   return page_setup;
-}
-
-
-// TODO: remove func
-void func (GtkPrinterOption *option, gpointer user_data)
-{
-	printf("Name: %s\n",  option->display_text);
-	printf("Value: %s\n", option->value);
 }
 
 
@@ -568,8 +567,6 @@ cpdb_printer_get_settings_from_options (GtkPrinter *printer,
 	GtkPrinterOption *option;
 	
 	printf("Getting printer settings from options\n");
-	gtk_printer_option_set_foreach(options, func, NULL);
-	
 
 	option = gtk_printer_option_set_lookup (options, "gtk-n-up");
 	if (option)
@@ -660,6 +657,10 @@ cpdb_printer_get_settings_from_options (GtkPrinter *printer,
 	if (option)
 		gtk_print_settings_set (settings, "print-scaling", option->value);
 
+  option = gtk_printer_option_set_lookup (options, "borderless");
+  if (option)
+    gtk_print_settings_set (settings, "borderless", option->value);
+
 }
 
 static cairo_status_t
@@ -734,18 +735,62 @@ gtk_printer_cpdb_configure_settings (const char *key,
   p = gtk_printer_cpdb_get_pObj (printer_cpdb);
 
   printf ("Adding setting: %s -> %s\n", key, value);
-	add_setting_to_printer(p, (char *) key, (char *) value);
+	add_setting_to_printer (p, (char *) key, (char *) value);
 }
 
 static void
 gtk_printer_cpdb_configure_page_setup (GtkPrinter *printer,
-                                       GtkPageSetup *page_setup)
+                                       GtkPageSetup *page_setup,
+                                       GtkPrintSettings *settings)
 {
-  printf("Configuring page_setup");
+  printf("Configuring page_setup\n");
 
+  char *value;
+  const char *borderless;
+  double width, height, left, top, right, bottom;
+  int orientation, default_orientation;
+  GtkPageOrientation page_orientation;
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
-  // TODO: add custom page support
-  
+  PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  width = gtk_page_setup_get_paper_width (page_setup, GTK_UNIT_MM) * 100.0;
+  height = gtk_page_setup_get_paper_height (page_setup, GTK_UNIT_MM) * 100.0;
+
+  left = gtk_page_setup_get_left_margin (page_setup, GTK_UNIT_MM) * 100.0;
+  right = gtk_page_setup_get_right_margin (page_setup, GTK_UNIT_MM) * 100.0;
+  top = gtk_page_setup_get_top_margin (page_setup, GTK_UNIT_MM) * 100.0;
+  bottom = gtk_page_setup_get_bottom_margin (page_setup, GTK_UNIT_MM) * 100.0;
+
+  borderless = gtk_print_settings_get (settings, "borderless");
+  if (g_ascii_strcasecmp (borderless, "True") == 0) 
+  {
+    left = right = top = bottom = 0;
+  }
+
+  // TODO: if user chooses custom size, check if it falls within custom_min and custom_max
+  value = g_strdup_printf ("{media-size={x-dimension=%.0f y-dimension=%.0f} "
+                            "media-bottom-margin=%.0f "
+                            "media-left-margin=%.0f "
+                            "media-right-margin=%.0f "
+                            "media-top-margin=%.0f}", 
+                            width, height, bottom, left, right, top);
+  gtk_print_settings_set (settings, "media-col", value);
+  g_free (value);
+
+  page_orientation = gtk_page_setup_get_orientation (page_setup);
+  default_orientation = g_ascii_strtoll (get_default (p, (char *) "orientation-requested"), NULL, 0);
+  switch (page_orientation)
+  {
+    case GTK_PAGE_ORIENTATION_PORTRAIT: orientation = 3; break;
+    case GTK_PAGE_ORIENTATION_LANDSCAPE: orientation = 4; break;
+    case GTK_PAGE_ORIENTATION_REVERSE_LANDSCAPE: orientation = 5; break; 
+    case GTK_PAGE_ORIENTATION_REVERSE_PORTRAIT: orientation = 6; break;
+    default: orientation = default_orientation;
+  }
+
+  value = g_strdup_printf ("%d", orientation);
+  gtk_print_settings_set (settings, "orientation-requested", value);
+  g_free(value);
 }
 
 static void
@@ -754,36 +799,84 @@ cpdb_printer_prepare_for_print (GtkPrinter *printer,
                                 GtkPrintSettings *settings,
                                 GtkPageSetup *page_setup)
 {
+  int n_ranges;
   double scale;
   GtkPrintPages pages;
   GtkPageRange *ranges;
-  int n_ranges;
+  GtkPageSet page_set;
+  GtkPrintCapabilities capabilities;
 
   printf("Preparing for print\n");
 
+  capabilities = cpdb_printer_get_capabilities (printer);
+
   pages = gtk_print_settings_get_print_pages (settings);
   gtk_print_job_set_pages (print_job, pages);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_PRINT_PAGES);
 
   if (pages == GTK_PRINT_PAGES_RANGES)
     ranges = gtk_print_settings_get_page_ranges (settings, &n_ranges);
   else
-    {
-      ranges = NULL;
-      n_ranges = 0;
-    }
-
-  // use page-ranges feature offered by gtk_print_job
+  {
+    ranges = NULL;
+    n_ranges = 0;
+  }
   gtk_print_job_set_page_ranges (print_job, ranges, n_ranges);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_PAGE_RANGES);
 
-  // TODO: let cpdb handle scaling
   scale = gtk_print_settings_get_scale (settings);
   if (scale != 100.0)
     gtk_print_job_set_scale (print_job, scale / 100.0);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_SCALE);
+
+  if (capabilities & GTK_PRINT_CAPABILITY_COLLATE)
+  {
+    if (gtk_print_settings_get_collate (settings))
+    {
+      gtk_print_settings_set (settings, "multiple-document-handling", "separate-documents-collated-copies");
+    }
+  }
+  gtk_print_job_set_collate (print_job, FALSE);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_COLLATE);
+
+  if (capabilities & GTK_PRINT_CAPABILITY_REVERSE)
+  {
+    if (gtk_print_settings_get_reverse (settings))
+    {
+      gtk_print_settings_set (settings, "page-delivery", "reverse-order");
+    }
+  }
+  gtk_print_job_set_reverse (print_job, FALSE);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_REVERSE);
+
+  if (capabilities & GTK_PRINT_CAPABILITY_COPIES) 
+  {
+    int copies = gtk_print_settings_get_n_copies (settings);
+    if (copies > 1)
+    {
+      char *value = g_strdup_printf ("%d", copies);
+      gtk_print_settings_set (settings, "copies", value);
+      g_free (value);
+    }
+  }
+  gtk_print_job_set_num_copies (print_job, 1);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_N_COPIES);
+
+  page_set = gtk_print_settings_get_page_set (settings);
+  switch (page_set)
+  {
+    case GTK_PAGE_SET_EVEN : gtk_print_settings_set (settings, "page-set", "even"); break;
+    case GTK_PAGE_SET_ODD : gtk_print_settings_set (settings, "page-set", "odd"); break;
+    case GTK_PAGE_SET_ALL :
+    default : gtk_print_settings_set (settings, "page-set", "all");
+  }
+  gtk_print_job_set_page_set (print_job, GTK_PAGE_SET_ALL);
+  gtk_print_settings_unset (settings, GTK_PRINT_SETTINGS_PAGE_SET);
+
+  gtk_printer_cpdb_configure_page_setup (printer, page_setup, settings);
 
   printf ("Configuring print settings\n");
   gtk_print_settings_foreach (settings, gtk_printer_cpdb_configure_settings, printer);
-
-  gtk_printer_cpdb_configure_page_setup (printer, page_setup);
 }
 
 
@@ -815,14 +908,15 @@ cpdb_print_cb  (GtkPrintBackendCpdb *cpdb_backend,
                                   : GTK_PRINT_STATUS_FINISHED);
 
   recent_manager = gtk_recent_manager_get_default ();
-  uri = g_strdup ("file:///tmp/out.pdf");
+  uri = g_strdup ("file:///tmp/output.pdf");
   gtk_recent_manager_add_item (recent_manager, uri);
   g_free (uri);
 
   if (!error) {
-    path = g_strdup("/tmp/out.pdf");
+    path = g_strdup("/tmp/output.pdf");
     printer_cpdb = GTK_PRINTER_CPDB (gtk_print_job_get_printer (ps->job));
     p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+    printf("Sending file to CPDB for printing\n");
     print_file (p, path);
     g_free (path);
   }
@@ -915,7 +1009,7 @@ cpdb_print_stream  (GtkPrintBackend *backend,
   
   // TODO: generate proper uri, maybe randomized
   error = NULL;
-  uri = g_strdup ("file:///tmp/out.pdf");
+  uri = g_strdup ("file:///tmp/output.pdf");
   
   if (uri == NULL)
 	  goto error;
