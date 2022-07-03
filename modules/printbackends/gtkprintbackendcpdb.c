@@ -48,8 +48,6 @@ G_DEFINE_DYNAMIC_TYPE (GtkPrintBackendCpdb, gtk_print_backend_cpdb, GTK_TYPE_PRI
   */
 static GList *gtk_print_backends = NULL;
 
-static GObjectClass *backend_parent_class;
-
 
 void
 g_io_module_load (GIOModule *module)
@@ -111,10 +109,6 @@ gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *klass)
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
   GtkPrintBackendClass *backend_class = GTK_PRINT_BACKEND_CLASS (klass);
 
-  // TODO: add counter for class instances using global hash table, for multiple frontends
-
-  backend_parent_class = g_type_class_peek_parent (klass);
-
   gobject_class->finalize = gtk_print_backend_cpdb_finalize;
 
   backend_class->request_printer_list = cpdb_request_printer_list;
@@ -159,18 +153,18 @@ gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
   gtk_print_backends = g_list_prepend (gtk_print_backends, cpdb_backend);
 
   g_print ("Connecting to DBUS\n");
-  connect_to_dbus (cpdb_backend->f); // TODO: add disconnect_from_dbus?
+  connect_to_dbus (cpdb_backend->f);
   
-  //TODO: fix bug, cancelling print dialog and reopening doesn't get printers
 }
 
 static void
 gtk_print_backend_cpdb_finalize (GObject *object)
 {
   //TODO: backend not being finalized when cpdb is closed
-  g_print("Finalizing CPDB backend object\n");
+  printf("Finalizing CPDB backend object\n");
 
   GtkPrintBackendCpdb *backend_cpdb = GTK_PRINT_BACKEND_CPDB (object);
+  GObjectClass *backend_parent_class = G_OBJECT_CLASS (gtk_print_backend_cpdb_parent_class);
 
   disconnect_from_dbus(backend_cpdb->f);
 
@@ -454,7 +448,7 @@ cpdb_printer_get_options (GtkPrinter *printer,
   
   if (borderless)
   {
-    // TODO: add borderless option properly
+    // TODO: borderless option not working correctly
     gtk_option = gtk_printer_option_new ("borderless", "Borderless", GTK_PRINTER_OPTION_TYPE_BOOLEAN);
     gtk_option->group = g_strdup ("Advanced");
     gtk_printer_option_set_add (gtk_option_set, gtk_option);
@@ -1062,6 +1056,16 @@ remove_printer_callback (FrontendObj *f, PrinterObj *p)
 {
   g_message("Lost Printer %s : %s!\n", p->name, p->backend_name);
 
+  GtkPrinter *printer;
+
+  GList *backend = g_list_find_custom (gtk_print_backends, f, cpdb_find_backend);
+  if (backend != NULL)
+  {
+    printer = gtk_print_backend_find_printer (GTK_PRINT_BACKEND (backend->data), p->name);
+    gtk_print_backend_remove_printer (GTK_PRINT_BACKEND (backend->data), printer);
+  }
+
+  free (p);
   // TODO: free PrinterObj since cpdb-libs doesn't do it
   // TODO: implement cpdb_remove_gtk_printer
 }
@@ -1069,19 +1073,18 @@ remove_printer_callback (FrontendObj *f, PrinterObj *p)
 static void
 cpdb_add_gtk_printer (PrinterObj *p, GtkPrintBackend *backend)
 {
-  GtkPrinterCpdb *cpdb_printer;
   GtkPrinter *printer;
+  GtkPrinterCpdb *printer_cpdb;
 
   printf("Adding GtkPrinter\n");
 
-  cpdb_printer = g_object_new (GTK_TYPE_PRINTER_CPDB,
+  printer_cpdb = g_object_new (GTK_TYPE_PRINTER_CPDB,
                                "name", p->name,
-                               "backend", GTK_PRINT_BACKEND_CPDB (backend),
+                               "backend", backend,
                                NULL);
-  gtk_printer_cpdb_set_pObj (cpdb_printer, p);
+  gtk_printer_cpdb_set_pObj (printer_cpdb, p);
 
-  printer = GTK_PRINTER (cpdb_printer);
-
+  printer = GTK_PRINTER (printer_cpdb);
   gtk_printer_set_icon_name (printer, "printer");
   gtk_printer_set_state_message (printer, p->state);
   gtk_printer_set_location (printer, p->location);
@@ -1089,6 +1092,8 @@ cpdb_add_gtk_printer (PrinterObj *p, GtkPrintBackend *backend)
   gtk_printer_set_is_accepting_jobs (printer, p->is_accepting_jobs);
   gtk_printer_set_job_count (printer, get_active_jobs_count(p));
   gtk_printer_set_has_details (printer, TRUE);
+  gtk_printer_set_accepts_pdf (printer, TRUE);
+  gtk_printer_set_accepts_ps (printer, TRUE);
   gtk_printer_set_is_active (printer, TRUE);
 
   gtk_print_backend_add_printer (backend, printer);
@@ -1109,7 +1114,6 @@ cpdb_fill_gtk_option (GtkPrinterOption *gtk_option,
     gtk_option->choices_display[i] = g_strdup (display_name);
   }
 
-  // TODO: default options, handle for job-sheets also
   if (g_strcmp0 (cpdb_option->default_value, "NA") != 0)
   {
     if (g_strcmp0 (cpdb_option->option_name, "job-sheets") == 0)
