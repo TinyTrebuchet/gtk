@@ -448,8 +448,12 @@ cpdb_printer_get_options (GtkPrinter *printer,
   
   if (borderless)
   {
-    // TODO: borderless option not working correctly
-    gtk_option = gtk_printer_option_new ("borderless", "Borderless", GTK_PRINTER_OPTION_TYPE_BOOLEAN);
+    gtk_option = gtk_printer_option_new ("borderless", "Borderless", GTK_PRINTER_OPTION_TYPE_PICKONE);
+    gtk_printer_option_allocate_choices (gtk_option, 2);
+    gtk_option->choices[0] = g_strdup ("true");
+    gtk_option->choices_display[0] = g_strdup ("True");
+    gtk_option->choices[1] = g_strdup ("false");
+    gtk_option->choices_display[1] = g_strdup ("False");
     gtk_option->group = g_strdup ("Advanced");
     gtk_printer_option_set_add (gtk_option_set, gtk_option);
     g_object_unref (gtk_option);
@@ -756,12 +760,11 @@ gtk_printer_cpdb_configure_page_setup (GtkPrinter *printer,
   bottom = gtk_page_setup_get_bottom_margin (page_setup, GTK_UNIT_MM) * 100.0;
 
   borderless = gtk_print_settings_get (settings, "borderless");
-  if (g_ascii_strcasecmp (borderless, "True") == 0) 
+  if (g_ascii_strcasecmp (borderless, "true") == 0) 
   {
     left = right = top = bottom = 0;
   }
 
-  // TODO: if user chooses custom size, check if it falls within custom_min and custom_max
   value = g_strdup_printf ("{media-size={x-dimension=%.0f y-dimension=%.0f} "
                             "media-bottom-margin=%.0f "
                             "media-left-margin=%.0f "
