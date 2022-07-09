@@ -83,6 +83,8 @@ static cairo_surface_t *cpdb_printer_create_cairo_surface     (GtkPrinter *print
 static void add_printer_callback                              (FrontendObj *f, PrinterObj *p);
 static void remove_printer_callback                           (FrontendObj *f, PrinterObj *p);
 
+char *random_string                                           (int size);
+
 
 G_END_DECLS
 

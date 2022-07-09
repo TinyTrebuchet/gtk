@@ -1,6 +1,7 @@
 
 #include <config.h>
 #include <glib/gi18n-lib.h>
+#include <sys/random.h>
 
 #include "gtkprintbackendcpdb.h"
 
@@ -141,13 +142,15 @@ gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
 {
   g_print ("Initialzing CPDB backend object\n");
 
-  char *name = g_strdup_printf ("Gtk-%d", g_list_length (gtk_print_backends) + 1);
+  char *tmp = random_string(4);
+  char *name = g_strdup_printf ("Gtk_%s", tmp);
 
   g_print ("Creating frontendObj for CPDB backend: %s\n", name);
   cpdb_backend->f = get_new_FrontendObj  (name,
                                          (event_callback) add_printer_callback,
                                          (event_callback) remove_printer_callback);
-  g_free (name);
+  g_free (name); g_free (tmp);
+
   ignore_last_saved_settings(cpdb_backend->f);
 
   gtk_print_backends = g_list_prepend (gtk_print_backends, cpdb_backend);
@@ -279,18 +282,20 @@ cpdb_printer_get_options (GtkPrinter *printer,
   printer_cpdb = GTK_PRINTER_CPDB (printer);
   p = gtk_printer_cpdb_get_pObj (printer_cpdb);
 
+  printf("%d\n", capabilities);
 
   /** Page-Setup **/
-  if (capabilities & GTK_PRINT_CAPABILITY_NUMBER_UP) 
+  cpdb_option = get_Option (p, (gchar *) "number-up");
+  if ((capabilities & GTK_PRINT_CAPABILITY_NUMBER_UP) && cpdb_option != NULL)
   {
-    cpdb_option = get_Option (p, (gchar *) "number-up");
     gtk_option = gtk_printer_option_new ("gtk-n-up", "Pages per Sheet", GTK_PRINTER_OPTION_TYPE_PICKONE);
     cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
     gtk_printer_option_set_add (gtk_option_set, gtk_option);
     g_object_unref (gtk_option);
   }
 
-  if (capabilities & GTK_PRINT_CAPABILITY_NUMBER_UP_LAYOUT)
+  cpdb_option = get_Option (p, (gchar *) "number-up-layout");
+  if ((capabilities & GTK_PRINT_CAPABILITY_NUMBER_UP_LAYOUT) && cpdb_option != NULL)
   {
     cpdb_option = get_Option (p, (gchar *) "number-up-layout");
     gtk_option = gtk_printer_option_new ("gtk-n-up-layout", "Page Ordering", GTK_PRINTER_OPTION_TYPE_PICKONE);
@@ -431,14 +436,17 @@ cpdb_printer_get_options (GtkPrinter *printer,
   {
     cpdb_option = get_Option (p, (gchar *) attrs[i]);
     bool found = false;
-    for (int j=0; j<cpdb_option->num_supported; j++) 
+
+    if (cpdb_option != NULL)
     {
-      if (g_strcmp0(cpdb_option->supported_values[j], "0") == 0) 
-      {
-        found = true;
-        break;
-      }
+      for (int j=0; j<cpdb_option->num_supported; j++) 
+        if (g_strcmp0(cpdb_option->supported_values[j], "0") == 0) 
+        {
+          found = true;
+          break;
+        }
     }
+
     if (!found)
     {
       borderless = false;
@@ -524,21 +532,20 @@ cpdb_printer_get_default_page_size (GtkPrinter *printer)
 {
   int width, height;
   char *display_name;
-  Option *media;
+  char *default_media;
   GtkPageSetup *page_setup = NULL;
   GtkPaperSize *paper_size;
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
   PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
 
-  media = get_Option (p, (gchar *) "media");
-  if (media != NULL)
+  default_media = get_default (p, (gchar *) "media");
+  if (default_media != NULL)
   {
-    display_name = get_human_readable_choice_name (p, (char *) "media", media->default_value);
-    get_media_size(p, (const char *) media->default_value, &width, &height);
+    display_name = get_human_readable_choice_name (p, (char *) "media", default_media);
+    get_media_size(p, (const char *) default_media, &width, &height);
 
     page_setup = gtk_page_setup_new ();
-
-    paper_size = gtk_paper_size_new_custom (media->default_value, 
+    paper_size = gtk_paper_size_new_custom (default_media, 
                                             display_name,
                                             width/100.0,
                                             height/100.0,
@@ -1205,4 +1212,24 @@ supports_am_pm (void)
   length = strftime (time, sizeof (time), "%p", &tmp_tm);
 
   return length != 0;
+}
+
+char *random_string(int size)
+{
+  const char charset[] =  "abcdefghijklmnopqrstuvwxyz"
+                          "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                          "0123456789";
+
+  char *str = g_malloc(size+1);
+  getrandom(str, size, 0);
+  for (int i=0; i<size; i++)
+  {
+    int rand = str[i] + 128;
+    printf("%d ", rand);
+    int idx = rand % ((int) sizeof charset);
+    str[i] = charset[idx];
+  }
+  str[size] = '\0';
+
+  return str;
 }
