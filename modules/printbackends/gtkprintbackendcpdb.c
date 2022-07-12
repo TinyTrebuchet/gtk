@@ -17,7 +17,6 @@
 struct _GtkPrintBackendCpdbClass
 {
   GtkPrintBackendClass parent_class;
-  
 };
 
 struct _GtkPrintBackendCpdb
@@ -47,6 +46,8 @@ G_DEFINE_DYNAMIC_TYPE (GtkPrintBackendCpdb, gtk_print_backend_cpdb, GTK_TYPE_PRI
  /*
   * List of all GtkPrintBackend objects, when multiple print dialogs are opened simultaneously 
   */
+
+char *instance_name;
 static GList *gtk_print_backends = NULL;
 
 
@@ -112,6 +113,10 @@ gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *klass)
 
   gobject_class->finalize = gtk_print_backend_cpdb_finalize;
 
+  char *tmp = random_string(4);
+  instance_name = g_strdup_printf ("Gtk_%s", tmp);
+  g_free (tmp);
+
   backend_class->request_printer_list = cpdb_request_printer_list;
   backend_class->printer_get_capabilities = cpdb_printer_get_capabilities;
   backend_class->printer_get_options = cpdb_printer_get_options;
@@ -142,14 +147,10 @@ gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
 {
   g_print ("Initialzing CPDB backend object\n");
 
-  char *tmp = random_string(4);
-  char *name = g_strdup_printf ("Gtk_%s", tmp);
-
-  g_print ("Creating frontendObj for CPDB backend: %s\n", name);
-  cpdb_backend->f = get_new_FrontendObj  (name,
+  g_print ("Creating frontendObj for CPDB backend: %s\n", instance_name);
+  cpdb_backend->f = get_new_FrontendObj  (instance_name,
                                          (event_callback) add_printer_callback,
                                          (event_callback) remove_printer_callback);
-  g_free (name); g_free (tmp);
 
   ignore_last_saved_settings(cpdb_backend->f);
 
@@ -170,6 +171,8 @@ gtk_print_backend_cpdb_finalize (GObject *object)
 
   disconnect_from_dbus(backend_cpdb->f);
   g_print ("Disconnected from dbus\n");
+
+  // TODO: finalize gtk_print_backends and instance_name
 
   backend_parent_class->finalize (object);
 }
