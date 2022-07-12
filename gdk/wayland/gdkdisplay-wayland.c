@@ -623,7 +623,7 @@ _gdk_wayland_display_open (const char *display_name)
         wl_registry_bind (display_wayland->wl_registry,
                           display_wayland->xdg_wm_base_id,
                           &xdg_wm_base_interface,
-                          MIN (display_wayland->xdg_wm_base_version, 3));
+                          MIN (display_wayland->xdg_wm_base_version, 4));
       xdg_wm_base_add_listener (display_wayland->xdg_wm_base,
                                 &xdg_wm_base_listener,
                                 display_wayland);
@@ -2169,8 +2169,7 @@ gdk_wayland_display_get_setting (GdkDisplay *display,
     {
       if (strcmp (name, "gtk-decoration-layout") == 0)
         set_decoration_layout_from_entry (display, entry, value);
-      else if (strcmp (name, "gtk-theme-name") == 0 ||
-               strcmp (name, "gtk-icon-theme-name") == 0)
+      else if (strcmp (name, "gtk-theme-name") == 0)
         set_theme_from_entry (display, entry, value);
       else
         set_value_from_entry (display, entry, value);

@@ -329,6 +329,7 @@
     <file>pickers.c</file>
     <file>printing.c</file>
     <file>revealer.c</file>
+    <file>read_more.c</file>
     <file>rotated_text.c</file>
     <file>scale.c</file>
     <file>search_entry.c</file>
@@ -375,7 +376,7 @@
     <file>glarea-gles.vs.glsl</file>
   </gresource>
   <gresource prefix="/font_features">
-    <file>font-features.ui</file>
+    <file>font_features.ui</file>
     <file>fontplane.c</file>
   </gresource>
   <gresource prefix="/spinbutton">

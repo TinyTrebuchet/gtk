@@ -280,7 +280,7 @@ compute_toplevel_size (GdkSurface *surface,
   gdk_toplevel_size_init (&size, bounds_width, bounds_height);
   gdk_toplevel_notify_compute_size (GDK_TOPLEVEL (surface), &size);
 
-  if (size.shadow.is_valid && update_geometry)
+  if (size.shadow.is_valid)
     {
       update_shadow_size (surface,
                           size.shadow.left,
@@ -2793,13 +2793,18 @@ gdk_x11_surface_get_frame_extents (GdkSurface    *surface,
   impl = GDK_X11_SURFACE (surface);
 
   /* Refine our fallback answer a bit using local information */
-  rect->x = impl->abs_x * impl->surface_scale;
-  rect->y = impl->abs_y * impl->surface_scale;
-  rect->width = surface->width * impl->surface_scale;
-  rect->height = surface->height * impl->surface_scale;
+  rect->x = impl->abs_x;
+  rect->y = impl->abs_y;
+  rect->width = surface->width;
+  rect->height = surface->height;
 
   if (GDK_SURFACE_DESTROYED (surface) || impl->override_redirect)
     return;
+
+  rect->x *= impl->surface_scale;
+  rect->y *= impl->surface_scale;
+  rect->width *= impl->surface_scale;
+  rect->height *= impl->surface_scale;
 
   nvroots = 0;
   vroots = NULL;

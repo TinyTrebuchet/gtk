@@ -24,7 +24,7 @@
 #include <gtk/gtkdragsource.h>
 #include <gtk/gtkeventcontroller.h>
 #include <gtk/gtkfilechooserdialog.h>
-#include <gtk/gtksignallistitemfactory.h>
+#include <gtk/gtkinscription.h>
 #include <gtk/gtklabel.h>
 #include <gtk/gtklistbox.h>
 #include <gtk/gtklistitem.h>
@@ -33,6 +33,7 @@
 #include <gtk/gtkmessagedialog.h>
 #include <gtk/gtkpicture.h>
 #include <gtk/gtkpopover.h>
+#include <gtk/gtksignallistitemfactory.h>
 #include <gtk/gtksingleselection.h>
 #include <gtk/gtktogglebutton.h>
 #include <gtk/gtktreeexpander.h>
@@ -401,7 +402,8 @@ setup_widget_for_render_node (GtkSignalListItemFactory *factory,
   gtk_box_append (GTK_BOX (box), child);
 
   /* name */
-  child = gtk_label_new (NULL);
+  child = gtk_inscription_new (NULL);
+  gtk_widget_set_hexpand (child, TRUE);
   gtk_box_append (GTK_BOX (box), child);
 }
 
@@ -431,7 +433,7 @@ bind_widget_for_render_node (GtkSignalListItemFactory *factory,
   /* name */
   name = node_name (node);
   child = gtk_widget_get_last_child (box);
-  gtk_label_set_label (GTK_LABEL (child), name);
+  gtk_inscription_set_text (GTK_INSCRIPTION (child), name);
   g_free (name);
 
   g_object_unref (paintable);
@@ -2037,10 +2039,11 @@ gtk_inspector_recorder_dispose (GObject *object)
 {
   GtkInspectorRecorder *recorder = GTK_INSPECTOR_RECORDER (object);
 
-  g_clear_pointer (&recorder->box, gtk_widget_unparent);
   g_clear_object (&recorder->render_node_model);
   g_clear_object (&recorder->render_node_root_model);
   g_clear_object (&recorder->render_node_selection);
+
+  gtk_widget_dispose_template (GTK_WIDGET (recorder), GTK_TYPE_INSPECTOR_RECORDER);
 
   G_OBJECT_CLASS (gtk_inspector_recorder_parent_class)->dispose (object);
 }
