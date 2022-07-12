@@ -27,7 +27,7 @@ gtk_printer_cpdb_init (GtkPrinterCpdb *self)
 static void
 gtk_printer_cpdb_finalize (GObject *object)
 {
-  printf ("Finalizing CPDB printer");
+  printf ("Finalizing CPDB printer\n");
 
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (object);
   GObjectClass *backend_parent_class = gtk_printer_cpdb_parent_class;

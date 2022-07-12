@@ -163,13 +163,13 @@ gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
 static void
 gtk_print_backend_cpdb_finalize (GObject *object)
 {
-  //TODO: backend not being finalized when cpdb is closed
-  printf("Finalizing CPDB backend object\n");
+  g_print ("Finalizing CPDB backend object\n");
 
   GtkPrintBackendCpdb *backend_cpdb = GTK_PRINT_BACKEND_CPDB (object);
   GObjectClass *backend_parent_class = G_OBJECT_CLASS (gtk_print_backend_cpdb_parent_class);
 
   disconnect_from_dbus(backend_cpdb->f);
+  g_print ("Disconnected from dbus\n");
 
   backend_parent_class->finalize (object);
 }
@@ -187,7 +187,7 @@ cpdb_request_printer_list (GtkPrintBackend *backend)
 {
   g_print ("Reguesting printer list\n");
   GtkPrintBackendCpdb *cpdb_backend = GTK_PRINT_BACKEND_CPDB (backend);
-  
+
   g_print ("Refreshing printer list\n");
   refresh_printer_list (cpdb_backend->f);
 
@@ -1225,7 +1225,6 @@ char *random_string(int size)
   for (int i=0; i<size; i++)
   {
     int rand = str[i] + 128;
-    printf("%d ", rand);
     int idx = rand % ((int) sizeof charset);
     str[i] = charset[idx];
   }
