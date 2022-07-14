@@ -22,9 +22,6 @@ GType          gtk_print_backend_cpdb_get_type (void) G_GNUC_CONST;
 static void gtk_print_backend_cpdb_finalize                   (GObject *object);
 
 static void cpdb_request_printer_list                         (GtkPrintBackend *backend);
-static void cpdb_add_gtk_printer                              (PrinterObj *p, 
-                                                               GtkPrintBackend *backend);
-
 
 static GtkPrintCapabilities cpdb_printer_get_capabilities     (GtkPrinter *printer);
 
@@ -80,8 +77,18 @@ static cairo_surface_t *cpdb_printer_create_cairo_surface     (GtkPrinter *print
                                                                double height,
                                                                GIOChannel *cache_io);
 
-static void add_printer_callback                              (FrontendObj *f, PrinterObj *p);
-static void remove_printer_callback                           (FrontendObj *f, PrinterObj *p);
+static void cpdb_printer_add_list                             (gpointer data, gpointer user_data);
+static void cpdb_printer_remove_list                          (gpointer data, gpointer user_data);
+
+static void cpdb_printer_add_hash_table                       (gpointer key, 
+                                                               gpointer value, 
+                                                               gpointer user_data);
+
+static void cpdb_add_gtk_printer                              (GtkPrintBackend *backend, PrinterObj *p);
+static void cpdb_remove_gtk_printer                           (GtkPrintBackend *backend, PrinterObj *p);
+
+static void add_printer_callback                              (PrinterObj *p);
+static void remove_printer_callback                           (PrinterObj *p);
 
 char *random_string                                           (int size);
 
