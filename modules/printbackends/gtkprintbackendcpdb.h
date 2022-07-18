@@ -23,6 +23,8 @@ static void gtk_print_backend_cpdb_finalize                   (GObject *object);
 
 static void cpdb_request_printer_list                         (GtkPrintBackend *backend);
 
+static void cpdb_printer_request_details                      (GtkPrinter *printer);
+
 static GtkPrintCapabilities cpdb_printer_get_capabilities     (GtkPrinter *printer);
 
 static GtkPrinterOptionSet *cpdb_printer_get_options          (GtkPrinter *printer, 
@@ -32,6 +34,12 @@ static GtkPrinterOptionSet *cpdb_printer_get_options          (GtkPrinter *print
                                                                
 static GList *cpdb_printer_list_papers                        (GtkPrinter *printer);
 static GtkPageSetup *cpdb_printer_get_default_page_size       (GtkPrinter *printer);
+
+static gboolean cpdb_printer_get_hard_margins                 (GtkPrinter *printer,
+                                                               double *top,
+                                                               double *bottom,
+                                                               double *left,
+                                                               double *right);
 
 static void cpdb_fill_gtk_option                              (GtkPrinterOption *gtk_option,
                                                                Option *cpdb_option,

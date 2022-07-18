@@ -112,10 +112,12 @@ gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *klass)
   gobject_class->finalize = gtk_print_backend_cpdb_finalize;
 
   backend_class->request_printer_list = cpdb_request_printer_list;
+  backend_class->printer_request_details = cpdb_printer_request_details;
   backend_class->printer_get_capabilities = cpdb_printer_get_capabilities;
   backend_class->printer_get_options = cpdb_printer_get_options;
   backend_class->printer_list_papers = cpdb_printer_list_papers;
   backend_class->printer_get_default_page_size = cpdb_printer_get_default_page_size;
+  backend_class->printer_get_hard_margins = cpdb_printer_get_hard_margins;
   backend_class->printer_get_settings_from_options = cpdb_printer_get_settings_from_options;
   backend_class->printer_prepare_for_print = cpdb_printer_prepare_for_print;
   backend_class->printer_create_cairo_surface = cpdb_printer_create_cairo_surface;
@@ -185,6 +187,26 @@ cpdb_request_printer_list (GtkPrintBackend *backend)
   g_hash_table_foreach (f->printer, cpdb_printer_add_hash_table, backend);
 
   gtk_print_backend_set_list_done (backend);
+}
+
+
+static void
+cpdb_printer_request_details (GtkPrinter *printer)
+{
+  g_print ("Requesting printer details\n");
+
+  GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
+  PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  gtk_printer_set_job_count (printer, get_active_jobs_count (p));
+
+  Options *opts = get_all_options (p);
+  if (opts == NULL) 
+    g_print ("Error retrieving options");
+  
+  gtk_printer_set_has_details (printer, TRUE);
+  gtk_printer_set_state_message (printer, p->state);
+  g_signal_emit_by_name (printer, "details-acquired", TRUE);
 }
 
 
@@ -524,12 +546,17 @@ static GtkPageSetup *
 cpdb_printer_get_default_page_size (GtkPrinter *printer)
 {
   int width, height;
-  char *display_name;
-  char *default_media;
-  GtkPageSetup *page_setup = NULL;
+  double left, right, top, bottom;
+  char *display_name, *default_media;
   GtkPaperSize *paper_size;
+  GtkPageSetup *page_setup = NULL;
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
   PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  left = g_ascii_strtod (get_default (p, (char *) "media-left-margin"), NULL) / 100.0;
+  right = g_ascii_strtod (get_default (p, (char *) "media-right-margin"), NULL) / 100.0;
+  top = g_ascii_strtod (get_default (p, (char *) "media-top-margin"), NULL) / 100.0;
+  bottom = g_ascii_strtod (get_default (p, (char *) "media-bottom-margin"), NULL) / 100.0;
 
   default_media = get_default (p, (gchar *) "media");
   if (default_media != NULL)
@@ -545,10 +572,33 @@ cpdb_printer_get_default_page_size (GtkPrinter *printer)
                                             GTK_UNIT_MM);
 
     gtk_page_setup_set_paper_size (page_setup, paper_size);
+    gtk_page_setup_set_left_margin (page_setup, left, GTK_UNIT_MM);
+    gtk_page_setup_set_right_margin (page_setup, right, GTK_UNIT_MM);
+    gtk_page_setup_set_top_margin (page_setup, top, GTK_UNIT_MM);
+    gtk_page_setup_set_bottom_margin (page_setup, bottom, GTK_UNIT_MM);
+
     gtk_paper_size_free (paper_size);
   }
 
   return page_setup;
+}
+
+static gboolean
+cpdb_printer_get_hard_margins (GtkPrinter *printer,
+                               double *top,
+                               double *bottom,
+                               double *left,
+                               double *right)
+{
+  GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
+  PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
+
+  *left = g_ascii_strtod (get_default (p, (char *) "media-left-margin"), NULL) / 100.0;
+  *right = g_ascii_strtod (get_default (p, (char *) "media-right-margin"), NULL) / 100.0;
+  *top = g_ascii_strtod (get_default (p, (char *) "media-top-margin"), NULL) / 100.0;
+  *bottom = g_ascii_strtod (get_default (p, (char *) "media-bottom-margin"), NULL) / 100.0;
+
+  return TRUE;
 }
 
 
@@ -1095,11 +1145,13 @@ cpdb_add_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
   gtk_printer_set_location (printer, p->location);
   gtk_printer_set_description (printer, p->info);
   gtk_printer_set_is_accepting_jobs (printer, p->is_accepting_jobs);
-  gtk_printer_set_job_count (printer, get_active_jobs_count(p));
-  gtk_printer_set_has_details (printer, TRUE);
   gtk_printer_set_accepts_pdf (printer, TRUE);
   gtk_printer_set_accepts_ps (printer, TRUE);
-  gtk_printer_set_is_active (printer, TRUE);
+
+  if (g_strcmp0 (p->state, "stopped") == 0)
+    gtk_printer_set_is_active (printer, FALSE);
+  else
+    gtk_printer_set_is_active (printer, TRUE);
 
   gtk_print_backend_add_printer (backend, printer);
   g_object_unref (printer);
