@@ -14,6 +14,90 @@
 
 #define _CPDB_MAX_CHUNK_SIZE 8192
 
+
+
+static void gtk_print_backend_cpdb_finalize                   (GObject *object);
+
+static void cpdb_request_printer_list                         (GtkPrintBackend *backend);
+
+static void cpdb_printer_request_details                      (GtkPrinter *printer);
+
+static GtkPrintCapabilities cpdb_printer_get_capabilities     (GtkPrinter *printer);
+
+static GtkPrinterOptionSet *cpdb_printer_get_options          (GtkPrinter *printer, 
+                                                               GtkPrintSettings *settings, 
+                                                               GtkPageSetup *page_setup, 
+                                                               GtkPrintCapabilities capabilities);
+                                                               
+static GList *cpdb_printer_list_papers                        (GtkPrinter *printer);
+static GtkPageSetup *cpdb_printer_get_default_page_size       (GtkPrinter *printer);
+
+static gboolean cpdb_printer_get_hard_margins                 (GtkPrinter *printer,
+                                                               double *top,
+                                                               double *bottom,
+                                                               double *left,
+                                                               double *right);
+
+static void cpdb_printer_get_settings_from_options            (GtkPrinter *printer,
+                                                               GtkPrinterOptionSet *options,
+                                                               GtkPrintSettings *settings);
+                            
+static void cpdb_printer_prepare_for_print                    (GtkPrinter *printer,
+                                                               GtkPrintJob *print_job,
+                                                               GtkPrintSettings *settings,
+                                                               GtkPageSetup *page_setup);
+                      
+static void cpdb_print_cb                                     (GtkPrintBackendCpdb *cpdb_backend, 
+                                                               GError *error, 
+                                                               gpointer user_data);
+
+static gboolean cpdb_write                                    (GIOChannel *source,
+                                                               GIOCondition con,
+                                                               gpointer user_data);
+
+static void cpdb_print_stream                                 (GtkPrintBackend *backend,
+                                                               GtkPrintJob *job,
+                                                               GIOChannel *data_io,
+                                                               GtkPrintJobCompleteFunc callback,
+                                                               gpointer user_data,
+                                                               GDestroyNotify dnotify);
+
+static void gtk_printer_cpdb_configure_page_setup 		        (GtkPrinter *printer, 
+                                                               GtkPageSetup *page_setup, 
+                                                               GtkPrintSettings *settings);
+static void gtk_printer_cpdb_configure_settings				        (const char *key, 
+                                                               const char *value, 
+                                                               gpointer user_data);
+
+static cairo_surface_t *cpdb_printer_create_cairo_surface     (GtkPrinter *printer,
+                                                               GtkPrintSettings *settings,
+                                                               double width,
+                                                               double height,
+                                                               GIOChannel *cache_io);
+
+static void cpdb_fill_gtk_option                              (GtkPrinterOption *gtk_option,
+                                                               Option *cpdb_option,
+                                                               PrinterObj *p);
+
+static void add_printer_callback                              (PrinterObj *p);
+static void remove_printer_callback                           (PrinterObj *p);
+
+static void cpdb_printer_add_list                             (gpointer data, gpointer user_data);
+static void cpdb_printer_remove_list                          (gpointer data, gpointer user_data);
+
+static void cpdb_printer_add_hash_table                       (gpointer key, 
+                                                               gpointer value, 
+                                                               gpointer user_data);
+
+static void cpdb_add_gtk_printer                              (GtkPrintBackend *backend, PrinterObj *p);
+static void cpdb_remove_gtk_printer                           (GtkPrintBackend *backend, PrinterObj *p);
+
+static char *random_string                                    (int size);
+static char *localtime_to_utctime                             (const char *local_time);
+static gboolean supports_am_pm                                (void);
+
+
+
 struct _GtkPrintBackendCpdbClass
 {
   GtkPrintBackendClass parent_class;
@@ -42,10 +126,10 @@ typedef struct {
  */
 G_DEFINE_DYNAMIC_TYPE (GtkPrintBackendCpdb, gtk_print_backend_cpdb, GTK_TYPE_PRINT_BACKEND)
 
- /*
-  * List of all GtkPrintBackend objects, when multiple print dialogs are opened simultaneously 
-  */
+/* Global FrontendObj shared by all GtkPrintBackend objects */
 FrontendObj *f;
+
+/* List of all GtkPrintBackend objects, when multiple print dialogs are opened simultaneously */
 static GList *gtk_print_backends = NULL;
 
 
@@ -123,11 +207,17 @@ gtk_print_backend_cpdb_class_init (GtkPrintBackendCpdbClass *klass)
   backend_class->printer_create_cairo_surface = cpdb_printer_create_cairo_surface;
   backend_class->print_stream = cpdb_print_stream;
 
+  /* 
+   * Initialize the global FrontendObj with a random instance name to 
+   * prevent conflicts with print dialogs opened from other programs
+   */
   char *instance_name, *tmp;
   tmp = random_string(4);
   instance_name = g_strdup_printf ("Gtk_%s", tmp);
 
-  g_print ("Creating frontendObj for CPDB backend: %s\n", instance_name);
+  GTK_NOTE (PRINTING,
+            g_print ("Creating frontendObj for CPDB backend: %s\n", instance_name));
+
   f = get_new_FrontendObj (instance_name,
                            (event_callback) add_printer_callback,
                            (event_callback) remove_printer_callback);
@@ -155,15 +245,21 @@ gtk_print_backend_cpdb_class_finalize (GtkPrintBackendCpdbClass *class)
 static void
 gtk_print_backend_cpdb_init (GtkPrintBackendCpdb *cpdb_backend)
 {
-  g_print ("Initializing CPDB backend object\n");
+  GTK_NOTE (PRINTING,
+            g_print ("Initializing CPDB backend object\n"));
 
   gtk_print_backends = g_list_prepend (gtk_print_backends, cpdb_backend);
 }
 
+/*
+ * Finalize CPDB PrintBackend instance
+ * Runs everytime for each instance closed
+ */
 static void
 gtk_print_backend_cpdb_finalize (GObject *object)
 {
-  g_print ("Finalizing CPDB backend object\n");
+  GTK_NOTE (PRINTING,
+            g_print ("Finalizing CPDB backend object\n"));
 
   GtkPrintBackendCpdb *backend_cpdb = GTK_PRINT_BACKEND_CPDB (object);
   GObjectClass *backend_parent_class = G_OBJECT_CLASS (gtk_print_backend_cpdb_parent_class);
@@ -174,12 +270,8 @@ gtk_print_backend_cpdb_finalize (GObject *object)
 }
 
 /*
- * This function is responsible for displaying the printer list obtained from CPDB backend on the print dialog.
- * Currently, this is implemented through refresh_printer_list,
- * which gets a new printer list from backend,
- * and calls add_printer_callback and remove_printer_callback
- * for each printer added or removed in the newly obtained printer list.
- * refresh_printer_list is internally implemented as an async function.
+ * This function is responsible for displaying the printer 
+ * list obtained from CPDB backend on the print dialog.
  */
 static void
 cpdb_request_printer_list (GtkPrintBackend *backend)
@@ -189,11 +281,21 @@ cpdb_request_printer_list (GtkPrintBackend *backend)
   gtk_print_backend_set_list_done (backend);
 }
 
-
+/*
+ * This function is responsible for making a printer acquire all
+ * the details and supported options list, which need not be queried 
+ * until the user clicks on the printer in the printer list in the dialog.
+ * The print dialog runs this function asynchronously and displays 
+ * "Getting printer attributes..." as the printer status meanwhile.
+ * This function is needed as some printers (like temporary CUPS queue)
+ * can take a couple of seconds to materialize and acquire all the details,
+ * and it's important the dialog doesn't block during that time.
+ */
 static void
 cpdb_printer_request_details (GtkPrinter *printer)
 {
-  g_print ("Requesting printer details\n");
+  GTK_NOTE (PRINTING,
+            g_print ("Requesting printer details\n"));
 
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
   PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
@@ -202,7 +304,8 @@ cpdb_printer_request_details (GtkPrinter *printer)
 
   Options *opts = get_all_options (p);
   if (opts == NULL) 
-    g_print ("Error retrieving options");
+    GTK_NOTE (PRINTING,
+              g_print ("Error retrieving printer options\n"));
   
   gtk_printer_set_has_details (printer, TRUE);
   gtk_printer_set_state_message (printer, p->state);
@@ -217,8 +320,6 @@ cpdb_printer_request_details (GtkPrinter *printer)
 static GtkPrintCapabilities
 cpdb_printer_get_capabilities (GtkPrinter *printer)
 {
-  g_print ("Getting print capabilities\n");
-
   GtkPrintCapabilities capabilities = 0;
   Option *cpdb_option;
   GtkPrinterCpdb *cpdb_printer = GTK_PRINTER_CPDB (printer);
@@ -266,8 +367,6 @@ cpdb_printer_get_capabilities (GtkPrinter *printer)
     capabilities |= GTK_PRINT_CAPABILITY_NUMBER_UP_LAYOUT;
   }
 
-  g_print("Capabilities polled: %d\n", capabilities);
-
   return capabilities;
 }
 
@@ -285,9 +384,6 @@ cpdb_printer_get_options (GtkPrinter *printer,
                           GtkPageSetup *page_setup,
                           GtkPrintCapabilities capabilities)
 {
-
-  g_print ("Requesting printer options\n");
-
   GtkPrinterCpdb *printer_cpdb;
   PrinterObj *p;
   Option *cpdb_option;
@@ -296,8 +392,6 @@ cpdb_printer_get_options (GtkPrinter *printer,
 
   printer_cpdb = GTK_PRINTER_CPDB (printer);
   p = gtk_printer_cpdb_get_pObj (printer_cpdb);
-
-  printf("%d\n", capabilities);
 
   /** Page-Setup **/
   cpdb_option = get_Option (p, (gchar *) "number-up");
@@ -485,11 +579,12 @@ cpdb_printer_get_options (GtkPrinter *printer,
   return gtk_option_set;
 }
 
+/* 
+ * This function is responsible for listing all the page sizes supported by a printer
+ */
 static GList *
 cpdb_printer_list_papers (GtkPrinter *printer)
 {
-  printf("Listing papers\n");
-
   int width, height;
   char *display_name;
   double left, right, top, bottom;
@@ -538,10 +633,12 @@ cpdb_printer_list_papers (GtkPrinter *printer)
     result = g_list_reverse (result);
   }
 
-  // TODO: fix bug with custom paper size dialog
   return result;
 }
 
+/*
+ * This function is responsible for getting the default page size for a printer
+ */
 static GtkPageSetup *
 cpdb_printer_get_default_page_size (GtkPrinter *printer)
 {
@@ -583,6 +680,10 @@ cpdb_printer_get_default_page_size (GtkPrinter *printer)
   return page_setup;
 }
 
+/* 
+ * This function is responsible for getting the
+ * default page size margins supported by a printer
+ */
 static gboolean
 cpdb_printer_get_hard_margins (GtkPrinter *printer,
                                double *top,
@@ -753,7 +854,6 @@ _cairo_write (void *closure,
 /*
  * called after prepare_for_print()
  */
-
 static cairo_surface_t *
 cpdb_printer_create_cairo_surface  (GtkPrinter *printer,
                                     GtkPrintSettings *settings,
@@ -783,7 +883,6 @@ gtk_printer_cpdb_configure_settings (const char *key,
 	printer_cpdb = GTK_PRINTER_CPDB (user_data);
   p = gtk_printer_cpdb_get_pObj (printer_cpdb);
 
-  printf ("Adding setting: %s -> %s\n", key, value);
 	add_setting_to_printer (p, (char *) key, (char *) value);
 }
 
@@ -792,8 +891,6 @@ gtk_printer_cpdb_configure_page_setup (GtkPrinter *printer,
                                        GtkPageSetup *page_setup,
                                        GtkPrintSettings *settings)
 {
-  printf("Configuring page_setup\n");
-
   char *value;
   const char *borderless;
   double width, height, left, top, right, bottom;
@@ -853,8 +950,6 @@ cpdb_printer_prepare_for_print (GtkPrinter *printer,
   GtkPageRange *ranges;
   GtkPageSet page_set;
   GtkPrintCapabilities capabilities;
-
-  g_print ("Preparing for print\n");
 
   capabilities = cpdb_printer_get_capabilities (printer);
 
@@ -939,8 +1034,6 @@ cpdb_print_cb  (GtkPrintBackendCpdb *backend_cpdb,
   GtkRecentManager *recent_manager;
   GtkPrinterCpdb *printer_cpdb;
   PrinterObj *p;
- 
-  printf("Inside cpdb_print_cb\n");
 
   if (ps->target_io_stream != NULL)
     (void)g_output_stream_close (G_OUTPUT_STREAM (ps->target_io_stream), NULL, NULL);
@@ -980,8 +1073,6 @@ cpdb_write (GIOChannel *source,
             GIOCondition con,
             gpointer user_data)
 {
-  printf ("Writing from data_io\n");
-
   char buf[_CPDB_MAX_CHUNK_SIZE];
   gsize bytes_read;
   GError *error;
@@ -1046,8 +1137,6 @@ cpdb_print_stream  (GtkPrintBackend *backend,
   char *uri;
   GFile *file;
 
-  g_print ("Generating print stream\n");
-  
   ps = g_new0 (_PrintStreamData, 1);
   ps->callback = callback;
   ps->user_data = user_data;
@@ -1055,7 +1144,7 @@ cpdb_print_stream  (GtkPrintBackend *backend,
   ps->job = g_object_ref(job);
   ps->backend = backend;
   
-  // TODO: generate proper uri, maybe randomized
+  // TODO: generate proper uri
   error = NULL;
   uri = g_strdup ("file:///tmp/output.pdf");
   
@@ -1071,7 +1160,9 @@ cpdb_print_stream  (GtkPrintBackend *backend,
 error:
   if (error != NULL)
   {
-    g_print ("Error: %s\n", error->message);
+    GTK_NOTE (PRINTING,
+              g_print ("Error: %s\n", error->message));
+
     cpdb_print_cb (GTK_PRINT_BACKEND_CPDB (backend), error, ps);
     
     g_error_free (error);
@@ -1085,18 +1176,28 @@ error:
 
 }
 
+/* 
+ * Whenever a new printer is found for FrontendObj,
+ * it must be added to the printer list of all GtkPrintBackends
+ */
 static void
 add_printer_callback (PrinterObj *p)
 {
-  g_message ("Found printer %s : %s\n", p->name, p->backend_name);
+  GTK_NOTE (PRINTING,
+            g_message ("Found printer %s : %s\n", p->name, p->backend_name));
 
   g_list_foreach (gtk_print_backends, cpdb_printer_add_list, p);
 }
 
+/* 
+ * Whenever an old printer is lost for FrontendObj,
+ * it must be removed from the printer list of all GtkPrintBackends
+ */
 static void
 remove_printer_callback (PrinterObj *p)
 {
-  g_message("Lost Printer %s : %s!\n", p->name, p->backend_name);
+  GTK_NOTE (PRINTING,
+            g_message ("Lost printer %s : %s\n", p->name, p->backend_name));
 
   g_list_foreach (gtk_print_backends, cpdb_printer_remove_list, p);
 
@@ -1104,34 +1205,33 @@ remove_printer_callback (PrinterObj *p)
 }
 
 static void
-cpdb_printer_add_list (gpointer data,
-                       gpointer user_data)
+cpdb_printer_add_list (gpointer data,             // data = GtkPrintBackend
+                       gpointer user_data)        // user_data = PrinterObj
 {
   cpdb_add_gtk_printer (data, user_data);
 }
 
 static void
-cpdb_printer_remove_list (gpointer data,
-                          gpointer user_data)
+cpdb_printer_remove_list (gpointer data,          // data = GtkPrintBackend
+                          gpointer user_data)     // user_data = PrinterObj
 {
   cpdb_remove_gtk_printer (data, user_data);
 }
 
 static void
-cpdb_printer_add_hash_table (gpointer key,
-                             gpointer value,
-                             gpointer user_data)
+cpdb_printer_add_hash_table (gpointer key,        // key = printer name
+                             gpointer value,      // value = PrinterObj
+                             gpointer user_data)  // user_data = GtkPrintBackend
 {
   cpdb_add_gtk_printer (user_data, value);
 }
 
+/* Adds given printer to given GtkPrintBackend */
 static void
 cpdb_add_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
 {
   GtkPrinter *printer;
   GtkPrinterCpdb *printer_cpdb;
-
-  g_print ("Adding GtkPrinter\n");
 
   printer_cpdb = g_object_new (GTK_TYPE_PRINTER_CPDB,
                                "name", p->name,
@@ -1157,6 +1257,7 @@ cpdb_add_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
   g_object_unref (printer);
 }
 
+/* Removes given printer from given GtkPrintBackend */
 static void
 cpdb_remove_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
 {
@@ -1166,6 +1267,7 @@ cpdb_remove_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
   gtk_print_backend_remove_printer (backend, printer);
 }
 
+/* Fill a gtk option from cpdb option */
 static void
 cpdb_fill_gtk_option (GtkPrinterOption *gtk_option,
                       Option *cpdb_option,
@@ -1195,6 +1297,7 @@ cpdb_fill_gtk_option (GtkPrinterOption *gtk_option,
 
 }
 
+/* Convert localtime to utctime */
 static char *
 localtime_to_utctime (const char *local_time)
 {
@@ -1270,7 +1373,9 @@ supports_am_pm (void)
   return length != 0;
 }
 
-char *random_string(int size)
+/* Generate a random string of "size" length */
+static char *
+random_string(int size)
 {
   const char charset[] =  "abcdefghijklmnopqrstuvwxyz"
                           "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
