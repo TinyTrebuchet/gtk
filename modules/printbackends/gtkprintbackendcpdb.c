@@ -21,6 +21,7 @@ static void gtk_print_backend_cpdb_finalize                   (GObject *object);
 static void cpdb_request_printer_list                         (GtkPrintBackend *backend);
 
 static void cpdb_printer_request_details                      (GtkPrinter *printer);
+static gpointer acquire_details                               (gpointer data);
 
 static GtkPrintCapabilities cpdb_printer_get_capabilities     (GtkPrinter *printer);
 
@@ -91,6 +92,10 @@ static void cpdb_printer_add_hash_table                       (gpointer key,
 
 static void cpdb_add_gtk_printer                              (GtkPrintBackend *backend, PrinterObj *p);
 static void cpdb_remove_gtk_printer                           (GtkPrintBackend *backend, PrinterObj *p);
+
+static void set_state_message                                 (GtkPrinter *printer, PrinterObj *p);
+
+static void  emit_printer_status_changed                      (gpointer data, gpointer user_data);
 
 static char *random_string                                    (int size);
 static char *localtime_to_utctime                             (const char *local_time);
@@ -294,9 +299,14 @@ cpdb_request_printer_list (GtkPrintBackend *backend)
 static void
 cpdb_printer_request_details (GtkPrinter *printer)
 {
-  GTK_NOTE (PRINTING,
-            g_print ("Requesting printer details\n"));
+  g_thread_new (NULL, acquire_details, printer);
+}
 
+/* Asynchronously acquire details */
+static gpointer
+acquire_details (gpointer data)
+{
+  GtkPrinter *printer = GTK_PRINTER (data);
   GtkPrinterCpdb *printer_cpdb = GTK_PRINTER_CPDB (printer);
   PrinterObj *p = gtk_printer_cpdb_get_pObj (printer_cpdb);
 
@@ -304,12 +314,39 @@ cpdb_printer_request_details (GtkPrinter *printer)
 
   Options *opts = get_all_options (p);
   if (opts == NULL) 
-    GTK_NOTE (PRINTING,
-              g_print ("Error retrieving printer options\n"));
+  {
+    GTK_NOTE (PRINTING, g_print ("Error retrieving printer options\n"));
+    g_signal_emit_by_name (printer, "details-acquired", FALSE);
+    return NULL;
+  }
   
+  gboolean accepting_jobs = is_accepting_jobs (p);
+  gboolean paused = g_strcmp0 (get_state (p), "stopped") == 0;
+  gboolean status_changed = paused ^ gtk_printer_is_paused (printer);
+
+  gtk_printer_set_is_accepting_jobs (printer, accepting_jobs);
+  gtk_printer_set_is_paused (printer, paused);
+  set_state_message (printer, p);
+
   gtk_printer_set_has_details (printer, TRUE);
-  gtk_printer_set_state_message (printer, p->state);
   g_signal_emit_by_name (printer, "details-acquired", TRUE);
+
+  if (status_changed)
+  {
+    g_list_foreach (gtk_print_backends, emit_printer_status_changed, printer);
+  }
+
+  return NULL;
+}
+
+static void
+emit_printer_status_changed (gpointer data,
+                             gpointer user_data)
+{
+  GtkPrintBackend *backend = GTK_PRINT_BACKEND (data);
+  GtkPrinter *printer = GTK_PRINTER (user_data);
+
+  g_signal_emit_by_name (backend, "printer-status-changed", printer);
 }
 
 
@@ -1208,7 +1245,15 @@ static void
 cpdb_printer_add_list (gpointer data,             // data = GtkPrintBackend
                        gpointer user_data)        // user_data = PrinterObj
 {
-  cpdb_add_gtk_printer (data, user_data);
+  GtkPrintBackend *backend = GTK_PRINT_BACKEND (data);
+  GtkPrinter *printer;
+  PrinterObj *p = (PrinterObj *) user_data;
+
+  cpdb_add_gtk_printer (backend, p);
+
+  printer = gtk_print_backend_find_printer (backend, p->name);
+  g_signal_emit_by_name (backend, "printer-added", printer);
+  g_signal_emit_by_name (backend, "printer-list-changed");
 }
 
 static void
@@ -1241,19 +1286,28 @@ cpdb_add_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
 
   printer = GTK_PRINTER (printer_cpdb);
   gtk_printer_set_icon_name (printer, "printer");
-  gtk_printer_set_state_message (printer, p->state);
   gtk_printer_set_location (printer, p->location);
   gtk_printer_set_description (printer, p->info);
-  gtk_printer_set_is_accepting_jobs (printer, p->is_accepting_jobs);
   gtk_printer_set_accepts_pdf (printer, TRUE);
   gtk_printer_set_accepts_ps (printer, TRUE);
+  gtk_printer_set_is_active (printer, TRUE);
+  gtk_printer_set_has_details (printer, FALSE);
 
-  if (g_strcmp0 (p->state, "stopped") == 0)
-    gtk_printer_set_is_active (printer, FALSE);
+  if (g_strcmp0 (p->state, "NA") == 0)
+  {
+    gtk_printer_set_is_accepting_jobs (printer, TRUE);
+    gtk_printer_set_is_paused (printer, FALSE);
+    gtk_printer_set_state_message (printer, "");
+  }
   else
-    gtk_printer_set_is_active (printer, TRUE);
+  {
+    gtk_printer_set_is_accepting_jobs (printer, is_accepting_jobs (p));
+    gtk_printer_set_is_paused (printer, g_strcmp0 (get_state (p), "stopped") == 0);
+    set_state_message (printer, p);
+  }
 
   gtk_print_backend_add_printer (backend, printer);
+
   g_object_unref (printer);
 }
 
@@ -1261,13 +1315,31 @@ cpdb_add_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
 static void
 cpdb_remove_gtk_printer (GtkPrintBackend *backend, PrinterObj *p)
 {
-  GtkPrinter *printer;
+  GtkPrinter *printer = gtk_print_backend_find_printer (backend, p->name);
 
-  printer = gtk_print_backend_find_printer (backend, p->name);
   gtk_print_backend_remove_printer (backend, printer);
+  g_signal_emit_by_name (backend, "printer-removed", printer);
+  g_signal_emit_by_name (backend, "printer-list-changed");
 }
 
-/* Fill a gtk option from cpdb option */
+/* Sets printer status */
+static void
+set_state_message(GtkPrinter *printer, PrinterObj *p)
+{
+  gboolean stopped = g_strcmp0 (get_state (p), "stopped") == 0;
+  gboolean accepting_jobs = is_accepting_jobs (p);
+
+  if (stopped && !accepting_jobs)
+      gtk_printer_set_state_message (printer, "Paused; Rejecting Jobs");
+  else if (stopped && accepting_jobs)
+    gtk_printer_set_state_message (printer, "Paused");
+  else if (!accepting_jobs)
+    gtk_printer_set_state_message (printer, "Rejecting Jobs");
+  else
+    gtk_printer_set_state_message (printer, "");
+}
+
+/* Fills a gtk option from cpdb option */
 static void
 cpdb_fill_gtk_option (GtkPrinterOption *gtk_option,
                       Option *cpdb_option,
