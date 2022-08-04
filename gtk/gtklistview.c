@@ -377,6 +377,9 @@ gtk_list_view_get_items_in_rect (GtkListBase                 *base,
 
   result = gtk_bitset_new_empty ();
 
+  if (rect->y >= gtk_list_view_get_list_height (self))
+    return result;
+
   n_items = gtk_list_base_get_n_items (base);
   if (n_items == 0)
     return result;
@@ -390,7 +393,7 @@ gtk_list_view_get_items_in_rect (GtkListBase                 *base,
   if (row)
     last = gtk_list_item_manager_get_item_position (self->item_manager, row);
   else
-    last = rect->y < 0 ? 0 : n_items - 1;
+    last = rect->y + rect->height < 0 ? 0 : n_items - 1;
 
   gtk_bitset_add_range_closed (result, first, last);
   return result;
@@ -424,6 +427,8 @@ gtk_list_view_get_position_from_allocation (GtkListBase           *base,
 
   if (across >= self->list_width)
     return FALSE;
+
+  along = CLAMP (along, 0, gtk_list_view_get_list_height (self) - 1);
 
   row = gtk_list_view_get_row_at_y (self, along, &remaining);
   if (row == NULL)
@@ -596,7 +601,10 @@ gtk_list_view_size_allocate (GtkWidget *widget,
 
   /* step 0: exit early if list is empty */
   if (gtk_list_item_manager_get_root (self->item_manager) == NULL)
-    return;
+    {
+      gtk_list_base_update_adjustments (GTK_LIST_BASE (self), 0, 0, 0, 0, &x, &y);
+      return;
+    }
 
   /* step 1: determine width of the list */
   gtk_widget_measure (widget, opposite_orientation,

@@ -268,6 +268,10 @@ test_create (void)
   assert_model (sort, "2 4 6 8 10");
   assert_changes (sort, "");
 
+  g_assert_false (gtk_sort_list_model_get_incremental (sort));
+  g_assert_true (g_list_model_get_item_type (G_LIST_MODEL (sort)) == G_TYPE_OBJECT);
+  g_assert_nonnull (gtk_sort_list_model_get_sorter (sort));
+
   g_object_unref (sort);
 }
 
@@ -543,6 +547,29 @@ test_out_of_bounds_access (void)
   g_object_unref (sort);
 }
 
+static void
+test_add_remove_item (void)
+{
+  GtkSortListModel *sort;
+  GListStore *store;
+
+  store = new_store ((guint[]) { 4, 8, 2, 6, 10, 0 });
+  sort = new_model (store);
+  assert_model (sort, "2 4 6 8 10");
+  assert_changes (sort, "");
+
+  add (store, 3);
+  assert_model (sort, "2 3 4 6 8 10");
+  assert_changes (sort, "+1*");
+
+  g_list_store_remove (store, 5);
+  assert_model (sort, "2 4 6 8 10");
+  assert_changes (sort, "-1*");
+
+  g_object_unref (store);
+  g_object_unref (sort);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -563,6 +590,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/sortlistmodel/stability", test_stability);
   g_test_add_func ("/sortlistmodel/incremental/remove", test_incremental_remove);
   g_test_add_func ("/sortlistmodel/oob-access", test_out_of_bounds_access);
+  g_test_add_func ("/sortlistmodel/add-remove-item", test_add_remove_item);
 
   return g_test_run ();
 }

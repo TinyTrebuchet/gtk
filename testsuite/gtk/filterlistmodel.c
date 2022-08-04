@@ -216,10 +216,19 @@ static void
 test_create (void)
 {
   GtkFilterListModel *filter;
-  
+
   filter = new_model (10, NULL, NULL);
   assert_model (filter, "1 2 3 4 5 6 7 8 9 10");
   assert_changes (filter, "");
+
+  g_assert_true (g_list_model_get_item_type (G_LIST_MODEL (filter)) == G_TYPE_OBJECT);
+  g_assert_false (gtk_filter_list_model_get_incremental (filter));
+  g_assert_null (gtk_filter_list_model_get_filter (filter));
+
+  gtk_filter_list_model_set_model (GTK_FILTER_LIST_MODEL (filter), NULL);
+  assert_model (filter, "");
+  assert_changes (filter, "0-10*");
+
   g_object_unref (filter);
 
   filter = new_model (10, is_smaller_than, GUINT_TO_POINTER (20));
@@ -379,6 +388,10 @@ test_incremental (void)
   while (g_main_context_pending (NULL))
     g_main_context_iteration (NULL, TRUE);
   assert_model (filter, "510 511 512 513 514");
+
+  gtk_filter_list_model_set_incremental (filter, FALSE);
+  assert_model (filter, "510 511 512 513 514");
+
   /* implementation detail */
   ignore_changes (filter);
 
@@ -414,6 +427,36 @@ test_empty (void)
   g_object_unref (filter);
 }
 
+static void
+test_add_remove_item (void)
+{
+  GtkFilterListModel *filter;
+  GListStore *store;
+
+  filter = new_model (10, is_smaller_than, GUINT_TO_POINTER (7));
+  assert_model (filter, "1 2 3 4 5 6");
+  assert_changes (filter, "");
+
+  store = G_LIST_STORE (gtk_filter_list_model_get_model (filter));
+  add (store, 9);
+  assert_model (filter, "1 2 3 4 5 6");
+  assert_changes (filter, "");
+
+  add (store, 1);
+  assert_model (filter, "1 2 3 4 5 6 1");
+  assert_changes (filter, "+6*");
+
+  g_list_store_remove (store, 10);
+  assert_model (filter, "1 2 3 4 5 6 1");
+  assert_changes (filter, "");
+
+  g_list_store_remove (store, 10);
+  assert_model (filter, "1 2 3 4 5 6");
+  assert_changes (filter, "-6*");
+
+  g_object_unref (filter);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -428,6 +471,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/filterlistmodel/change_filter", test_change_filter);
   g_test_add_func ("/filterlistmodel/incremental", test_incremental);
   g_test_add_func ("/filterlistmodel/empty", test_empty);
+  g_test_add_func ("/filterlistmodel/add_remove_item", test_add_remove_item);
 
   return g_test_run ();
 }

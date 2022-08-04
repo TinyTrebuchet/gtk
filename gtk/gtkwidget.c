@@ -408,6 +408,7 @@
  *
  *   G_OBJECT_CLASS (foo_widget_parent_class)->dispose (gobject);
  * }
+ * ```
  *
  * You can access widgets defined in the template using the
  * [id@gtk_widget_get_template_child] function, but you will typically declare
@@ -6843,7 +6844,7 @@ gtk_widget_get_display (GtkWidget *widget)
  * The default `focus()` virtual function for a widget should return `TRUE` if
  * moving in @direction left the focus on a focusable location inside that
  * widget, and `FALSE` if moving in @direction moved the focus outside the
- * widget. When returning `TRUE`, widgets normallycall [method@Gtk.Widget.grab_focus]
+ * widget. When returning `TRUE`, widgets normally call [method@Gtk.Widget.grab_focus]
  * to place the focus accordingly; when returning `FALSE`, they don’t modify
  * the current focus location.
  *
