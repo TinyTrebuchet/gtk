@@ -429,7 +429,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
                                          GTK_PRINTER_OPTION_TYPE_PICKONE);
 
     cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+    if (gtk_option->num_choices > 1)
+      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
     g_object_unref (gtk_option);
   }
 
@@ -442,7 +445,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
                                          GTK_PRINTER_OPTION_TYPE_PICKONE);
 
     cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+    if (gtk_option->num_choices > 1)
+      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
     g_object_unref (gtk_option);
   }
 
@@ -454,7 +460,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
                                          GTK_PRINTER_OPTION_TYPE_PICKONE);
 
     cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-    gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+    if (gtk_option->num_choices > 1)
+      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
     g_object_unref (gtk_option);
   }
 
@@ -466,7 +475,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
                                            GTK_PRINTER_OPTION_TYPE_PICKONE);
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
 
@@ -478,7 +490,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
                                            GTK_PRINTER_OPTION_TYPE_PICKONE);
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
 
@@ -490,7 +505,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
                                            GTK_PRINTER_OPTION_TYPE_PICKONE);
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
 
@@ -498,41 +516,48 @@ cpdb_printer_get_options (GtkPrinter *printer,
   /** Jobs **/
   cpdb_option = get_Option (p, (gchar *) "job-priority");
   if (cpdb_option != NULL)
-  {
-    // job-priority is represented as a number from 1-100
-    const gchar *prio[] = {"100", "80", "50", "30"};
-    const gchar *prio_display[] = {"Urgent", "High", "Medium", "Low"};
-    gtk_option = gtk_printer_option_new ("gtk-job-prio",
-                                         "Job Priority",
-                                         GTK_PRINTER_OPTION_TYPE_PICKONE);
+    {
+      // job-priority is represented as a number from 1-100
+      const gchar *prio[] = {"100", "80", "50", "30"};
+      const gchar *prio_display[] = {"Urgent", "High", "Medium", "Low"};
+      gtk_option = gtk_printer_option_new ("gtk-job-prio",
+                                           "Job Priority",
+                                           GTK_PRINTER_OPTION_TYPE_PICKONE);
 
-    gtk_printer_option_choices_from_array (gtk_option,
-                                           G_N_ELEMENTS (prio),
-                                           prio, prio_display);
+      gtk_printer_option_choices_from_array (gtk_option,
+                                             G_N_ELEMENTS (prio),
+                                             prio, prio_display);
 
-    gtk_printer_option_set (gtk_option, "50");
-    gtk_printer_option_set_add (gtk_option_set, gtk_option);
-    g_object_unref (gtk_option);
-  }
+      gtk_printer_option_set (gtk_option, "50");
+      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+      g_object_unref (gtk_option);
+    }
 
   cpdb_option = get_Option (p, (gchar *) "job-sheets");
-  if (cpdb_option != NULL) {
-    gtk_option = gtk_printer_option_new ("gtk-cover-before",
-                                         "Before",
-                                         GTK_PRINTER_OPTION_TYPE_PICKONE);
+  if (cpdb_option != NULL)
+    {
+      gtk_option = gtk_printer_option_new ("gtk-cover-before",
+                                           "Before",
+                                           GTK_PRINTER_OPTION_TYPE_PICKONE);
 
-    cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-    gtk_printer_option_set_add (gtk_option_set, gtk_option);
-    g_object_unref (gtk_option);
+      cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
 
-    gtk_option = gtk_printer_option_new ("gtk-cover-after",
-                                         "After",
-                                         GTK_PRINTER_OPTION_TYPE_PICKONE);
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
 
-    cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
-    gtk_printer_option_set_add (gtk_option_set, gtk_option);
-    g_object_unref (gtk_option);
-  }
+      g_object_unref (gtk_option);
+
+      gtk_option = gtk_printer_option_new ("gtk-cover-after",
+                                           "After",
+                                           GTK_PRINTER_OPTION_TYPE_PICKONE);
+
+      cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      g_object_unref (gtk_option);
+    }
 
   gtk_option = gtk_printer_option_new ("gtk-billing-info",
                                        "Billing Info",
@@ -574,7 +599,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
       gtk_option->group = g_strdup ("ImageQualityPage");
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
   
@@ -587,7 +615,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
       gtk_option->group = g_strdup ("ImageQualityPage");
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
 
@@ -601,7 +632,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
       gtk_option->group = g_strdup ("ColorPage");
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
   
@@ -615,7 +649,10 @@ cpdb_printer_get_options (GtkPrinter *printer,
 
       cpdb_fill_gtk_option (gtk_option, cpdb_option, p);
       gtk_option->group = g_strdup ("Advanced");
-      gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
+      if (gtk_option->num_choices > 1)
+        gtk_printer_option_set_add (gtk_option_set, gtk_option);
+
       g_object_unref (gtk_option);
     }
 
